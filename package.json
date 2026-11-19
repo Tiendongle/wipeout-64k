@@ -1,0 +1,11 @@
+{
+  "name": "wipeout-64k",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The Designers Republic / Wipeout-inspired 64k interactive karaoke WebGL2 visualizer",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "pack": "node scripts/pack.mjs"
+  }
+}
