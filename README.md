@@ -2,6 +2,8 @@
 
 Interactive karaoke audio-reactive 3D visualizer inspired by **The Designers Republic**, **Wipeout**, and early-2000s **64k demoscene** craft.
 
+- **Live Demo (GitHub Pages)**: https://tiendongle.github.io/wipeout-64k/ (serves the packed `< 64 KB` [dist/wipeout-64k.html](dist/wipeout-64k.html))
+
 ## Architecture
 - **Single WebGL2 Context** (`src/gl/renderer.js`, `src/gl/shaders.js`): Renders the true 3D ray-projected Wipeout pink sunset sky & distant city skyline (zero curve warping), striped racing track + chevron barriers + glowing rails + ground-effect ship contact shadow, trackside billboards, redesigned 3D Wipeout wedge craft, 3D racing karaoke lyric banners, and continuous twin thruster beams into one MRT framebuffer (color + linear depth), followed by 2-pass half-res GPU bloom and full-res 16-tap Vogel-disk Depth of Field.
 - **Track & Physics** (`src/world/track.js`, `src/world/ship.js`): Mouse/touch X shapes oncoming track curvature smoothly without warping existing geometry; rolling hills track music energy; the ship drives autonomously with strong ground-effect underpressure and elastic beat-locked kick/drop surges.
