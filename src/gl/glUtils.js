@@ -104,17 +104,6 @@ export function mat4LookAtBasis(out, eye, right, up, forward) {
   return out;
 }
 
-export function mat4Mul(out, a, b) {
-  for (let c = 0; c < 4; c++) {
-    const b0 = b[c * 4], b1 = b[c * 4 + 1], b2 = b[c * 4 + 2], b3 = b[c * 4 + 3];
-    out[c * 4 + 0] = a[0] * b0 + a[4] * b1 + a[8] * b2 + a[12] * b3;
-    out[c * 4 + 1] = a[1] * b0 + a[5] * b1 + a[9] * b2 + a[13] * b3;
-    out[c * 4 + 2] = a[2] * b0 + a[6] * b1 + a[10] * b2 + a[14] * b3;
-    out[c * 4 + 3] = a[3] * b0 + a[7] * b1 + a[11] * b2 + a[15] * b3;
-  }
-  return out;
-}
-
 export function mat4FromBasis(out, pos, right, up, forward, scale = 1) {
   // Local +Z = -forward (so nose points along +forward when mesh nose is -Z)
   out[0] = right[0] * scale;    out[1] = right[1] * scale;    out[2] = right[2] * scale;    out[3] = 0;
