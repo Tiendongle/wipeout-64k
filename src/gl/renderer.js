@@ -361,12 +361,13 @@ export class Renderer {
     const gl = this.gl;
     const U = this.u;
 
-    // Smooth progressive boost-delta ramp: tracks rolling baseline KPH so streaks swell smoothly on acceleration & clear at steady/coasting speed (zero pulsing!)
+    // Smooth progressive boost-delta ramp + gentle understated floor at sustained Phantom speeds (>780 KPH)
     const baseRate = ship.kph > this._baseKph ? 0.72 : 1.45;
     this._baseKph += (ship.kph - this._baseKph) * Math.min(1, dt * baseRate);
+    const fastFloor = Math.max(0, Math.min(1, (ship.kph - 780) / 480)) * 0.28;
     const boostDelta = Math.max(0, (ship.kph - this._baseKph - 16) / 250);
     const surgeDelta = Math.max(0, (ship.relVel - 8) / 135);
-    const targetSpeedFilter = Math.min(1.30, boostDelta * 0.95 + surgeDelta * 0.45);
+    const targetSpeedFilter = Math.min(1.30, fastFloor + boostDelta * 0.90 + surgeDelta * 0.42);
     const sfRate = targetSpeedFilter > this._speedFilter ? 3.2 : 1.8;
     this._speedFilter += (targetSpeedFilter - this._speedFilter) * Math.min(1, dt * sfRate);
     if (this._speedFilter < 0.008) this._speedFilter = 0;
