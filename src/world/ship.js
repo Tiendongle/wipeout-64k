@@ -196,6 +196,8 @@ export class Ship {
     const antiGravFloat = music.mode === 'retrowave' ? ((music.subBassEnvelope || 0) * 0.10) : 0.0;
     const restH = 0.84 + antiGravFloat + Math.sin(nowSec * 16.0) * 0.012;
     const roadVy = effSlope * effSpeed;
+    const vRatio = effSpeed / 120.0;
+    const aeroQuad = vRatio * vRatio; // True aerodynamic v^2 quadratic downforce!
 
     // 4 substeps for rock-solid progressive magnetic cushion stability
     const subDt = dt * 0.25;
@@ -213,10 +215,10 @@ export class Ship {
           // Descent-ONLY progressive hydraulic shock absorber (zero float on climb, silky landing catch!)
           const c = 1.0 - (clearance - restH) / (1.85 - restH);
           ay += (-relVy) * (13.5 * c * c);
-        } else if (clearance < 2.45 && !surf.isRamp && !noseSurf.isRamp) {
-          // Strong ground-effect magnetic suction over normal hills (keeps high-speed rolling crests planted!)
-          const s = 1.0 - (clearance - restH) / (2.45 - restH);
-          ay -= 55.0 + 95.0 * s;
+        } else if (clearance < 3.20 && !surf.isRamp && !noseSurf.isRamp) {
+          // Quadratic (v^2) ground-effect aerodynamic downforce matches crest centripetal lift (k * v^2)!
+          const s = 1.0 - (clearance - restH) / (3.20 - restH);
+          ay -= (48.0 + 112.0 * s) * aeroQuad;
         }
       }
 
