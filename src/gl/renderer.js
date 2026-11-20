@@ -120,9 +120,9 @@ export class Renderer {
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, bStride, 0);
     gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, bStride, 12);
 
-    // --- Dynamic Quads VAO/VBO (shared for billboards & racing lyric banners) ---
-    // Format: [x, y, z, u, v, glow] (6 floats per vert, up to 120 quads)
-    this.quadBuf = new Float32Array(120 * 6 * 6);
+    // --- Dynamic Quads VAO/VBO (shared for billboards, racing lyrics & voxel shatter shards) ---
+    // Format: [x, y, z, u, v, glow] (6 floats per vert, up to 256 quads)
+    this.quadBuf = new Float32Array(256 * 6 * 6);
     this.quadVao = gl.createVertexArray();
     this.quadVbo = gl.createBuffer();
     gl.bindVertexArray(this.quadVao);
@@ -209,7 +209,8 @@ export class Renderer {
       speedRatio: 0.26 + energy * 0.14, // flies forward along track as if racing
       bornEnergy: energy,
       smashed: 0,
-      smashT: 0
+      smashT: 0,
+      seed: (this._lyricLaneToggle * 73) & 255
     });
     if (this.activeLyrics.length > 18) {
       this.activeLyrics.shift();
@@ -343,8 +344,7 @@ export class Renderer {
       const l = this.activeLyrics[i];
       if (l.smashed) {
         l.smashT += dt;
-        l.s = ship.worldS + 2.0 - l.smashT * 32.0;
-        if (l.smashT > 0.48) this.activeLyrics.splice(i, 1);
+        if (l.smashT > 0.62) this.activeLyrics.splice(i, 1);
       } else {
         l.s += track.speed * l.speedRatio * dt;
         if (l.s <= ship.worldS + 3.5) {
@@ -389,33 +389,47 @@ export class Renderer {
       const hh = 3.45 * pop;
 
       if (l.smashed) {
-        // Explode into 4 tumbling quadrant shards flying outward past the camera!
-        track.sampleAt(Math.max(track.dist - 2.0, l.s), fr);
+        // Shatter into 12x4 = 48 small tumbling voxel tiles flying right into & past the camera!
+        const nx = 12, ny = 4;
+        if (o + nx * ny * 36 > this.quadBuf.length) continue;
+        track.sampleAt(Math.max(track.dist - 2.0, ship.worldS + 2.0), fr);
         const st = l.smashT;
-        const um = (uv.u0 + uv.u1) * 0.5;
-        const vm = (uv.v0 + uv.v1) * 0.5;
-        const shw = hw * 0.5 * (1.0 - st * 0.45);
-        const shh = hh * 0.5 * (1.0 - st * 0.45);
-        for (let q = 0; q < 4; q++) {
-          const qx = (q & 1) ? 1 : -1;
-          const qy = (q & 2) ? 1 : -1;
-          const ox = l.lat + qx * (hw * 0.5 + st * 26.0);
-          const oy = l.height + qy * (hh * 0.5 + st * 12.0) + st * 3.5;
-          const ang = qx * qy * st * 1.9;
-          const ca = Math.cos(ang), sa = Math.sin(ang);
-          const rx = fr.rx * ca + fr.ux * sa, ry = fr.ry * ca + fr.uy * sa, rz = fr.rz * ca + fr.uz * sa;
-          const ux = -fr.rx * sa + fr.ux * ca, uy = -fr.ry * sa + fr.uy * ca, uz = -fr.rz * sa + fr.uz * ca;
-          o = this._pushQuad(
-            this.quadBuf, o,
-            fr.x + fr.rx * ox + fr.ux * oy,
-            fr.y + fr.ry * ox + fr.uy * oy,
-            fr.z + fr.rz * ox + fr.uz * oy,
-            rx, ry, rz, ux, uy, uz,
-            shw, shh,
-            qx < 0 ? uv.u0 : um, qy > 0 ? uv.v0 : vm,
-            qx < 0 ? um : uv.u1, qy > 0 ? vm : uv.v1,
-            1.15, 0.15
-          );
+        const du = (uv.u1 - uv.u0) / nx;
+        const dv = (uv.v1 - uv.v0) / ny;
+        const shw = (hw / nx) * (1.05 - st * 0.35);
+        const shh = (hh / ny) * (1.05 - st * 0.35);
+        const seed = l.seed || 17;
+        for (let iy = 0; iy < ny; iy++) {
+          const fy = ((iy + 0.5) / ny) * 2.0 - 1.0; // -1 (bottom) .. +1 (top)
+          const tv1 = uv.v1 - iy * dv;
+          const tv0 = tv1 - dv;
+          for (let ix = 0; ix < nx; ix++) {
+            const fx = ((ix + 0.5) / nx) * 2.0 - 1.0;
+            const k = (ix * 17 + iy * 53 + seed) & 255;
+            const h1 = ((k * 37) & 255) / 255;
+            const h2 = ((k * 91 + 19) & 255) / 255;
+            const h3 = ((k * 149 + 7) & 255) / 255;
+            const dc = Math.min(1.2, Math.hypot(fx * 1.35, fy));
+            // Center voxels blast straight back into & past the camera lens!
+            const backZ = st * (18.0 + (1.35 - dc) * 24.0 + h1 * 18.0);
+            const ox = l.lat + fx * hw + (fx * 10.5 + (h2 - 0.5) * 8.5) * st;
+            const oy = l.height + fy * hh + (fy * 5.2 + 3.4 + (h3 - 0.5) * 6.5) * st - 13.0 * st * st;
+            const ang = (h1 - 0.5) * 14.0 * st;
+            const ca = Math.cos(ang), sa = Math.sin(ang);
+            const rx = fr.rx * ca + fr.ux * sa, ry = fr.ry * ca + fr.uy * sa, rz = fr.rz * ca + fr.uz * sa;
+            const ux = -fr.rx * sa + fr.ux * ca, uy = -fr.ry * sa + fr.uy * ca, uz = -fr.rz * sa + fr.uz * ca;
+            const tu0 = uv.u0 + ix * du;
+            o = this._pushQuad(
+              this.quadBuf, o,
+              fr.x + fr.rx * ox + fr.ux * oy - fr.fx * backZ,
+              fr.y + fr.ry * ox + fr.uy * oy - fr.fy * backZ,
+              fr.z + fr.rz * ox + fr.uz * oy - fr.fz * backZ,
+              rx, ry, rz, ux, uy, uz,
+              shw, shh,
+              tu0, tv0, tu0 + du, tv1,
+              1.15, 0.15
+            );
+          }
         }
         continue;
       }
