@@ -136,7 +136,7 @@ export class Track {
     const minStart = this._maxGenerated + rampLen + 4;
     const startSeg = Math.max(minStart, Math.round(targetWorldS / SEG_LEN));
     for (let i = 0; i < this.jumps.length; i++) {
-      if (Math.abs(this.jumps[i].startSeg - startSeg) < 90) return null;
+      if (Math.abs(this.jumps[i].startSeg - startSeg) < 110) return null;
     }
     // Crisp Wipeout skyway gaps tuned for weighty gravity (g = 135) & sloped landing catch ramp!
     const gapSegs = isMega ? 32 : 24; // 96u chasm for BIG DROP, 72u chasm for chorus jump
@@ -188,11 +188,11 @@ export class Track {
     if (d) return d;
     const prev = this._segData.get(id - 1) || { curv: 0, y: 0, baseY: 0, gap: 0, ramp: 0 };
 
-    // Check if segment belongs to an immutable disconnected track jump (including 14-seg sloped catch runway)!
+    // Check if segment belongs to an immutable disconnected track jump (including 52-seg crest-free landing & ease-out zone)!
     let activeJump = null;
     for (let i = 0; i < this.jumps.length; i++) {
       const j = this.jumps[i];
-      if (id >= j.startSeg - j.rampLen && id <= j.endSeg + 14) {
+      if (id >= j.startSeg - j.rampLen && id <= j.endSeg + 52) {
         activeJump = j;
         break;
       }
@@ -202,16 +202,17 @@ export class Track {
     const organic =
       0.0036 * Math.sin(id * 0.043) +
       0.0024 * Math.sin(id * 0.017 + 1.4) + acidWave;
-    const targetCurv = (activeJump && id > activeJump.startSeg - 4)
-      ? (this.mouseSmooth * 0.004 + organic * 0.35) // straighter sightline across the disconnected chasm!
+    const targetCurv = (activeJump && id > activeJump.startSeg - 4 && id <= activeJump.endSeg + 24)
+      ? (this.mouseSmooth * 0.004 + organic * 0.35) // straighter sightline across chasm & landing runway!
       : (this.mouseSmooth * 0.0135 + organic);
     const curv = prev.curv + (targetCurv - prev.curv) * 0.14;
 
     const amp = 11.0 + this.hillEnergy * 16.0;
-    const rawY =
+    const rawHill =
       Math.sin(id * 0.052 + 0.3) * amp +
       Math.sin(id * 0.023 - 0.8) * (amp * 0.65) +
-      Math.cos(id * 0.095) * (amp * 0.22) + this._yOffset;
+      Math.cos(id * 0.095) * (amp * 0.22);
+    const rawY = rawHill + this._yOffset;
     // Damp underlying hill slope during a jump ramp so crest + ramp never double-stack into a floaty launch!
     const hillBlend = (activeJump && id <= activeJump.startSeg) ? 0.08 : 0.22;
     const baseY = prev.baseY + (rawY - prev.baseY) * hillBlend;
@@ -220,6 +221,9 @@ export class Track {
     let ramp = 0;
 
     if (activeJump) {
+      const catchDrop = activeJump.isMega ? -3.6 : -2.4;
+      const landY = activeJump.launchY + activeJump.dropY;
+      const flatY = landY + catchDrop;
       if (id <= activeJump.startSeg) {
         // Non-compounding smooth ski-jump ramp (exact +3.2u / +4.8u lift — never compounds into a wall!)
         ramp = 1;
@@ -232,25 +236,29 @@ export class Track {
         gap = 1;
         const u = (id - activeJump.startSeg) / (activeJump.endSeg - activeJump.startSeg);
         y = activeJump.launchY + activeJump.dropY * (u * u * (3 - 2 * u));
-      } else if (id === activeJump.endSeg) {
-        // Landing lip: adopt dropped elevation cleanly, followed by a gentle downward ski-jump catch slope!
-        const catchDrop = activeJump.isMega ? -3.6 : -2.4;
-        if (!activeJump.appliedOffset) {
-          this._yOffset += activeJump.dropY + catchDrop;
+      } else if (id <= activeJump.endSeg + 16) {
+        // 16-seg (48u) pure downward ski-jump catch slope — 100% immune to hill crests!
+        const t = (id - activeJump.endSeg) / 16.0;
+        y = landY + catchDrop * (1.0 - (1.0 - t) * (1.0 - t));
+      } else if (id <= activeJump.endSeg + 28) {
+        // 12-seg (36u) guaranteed level stabilization deck — ZERO crests while craft settles!
+        y = flatY;
+        if (id === activeJump.endSeg + 28 && !activeJump.appliedOffset) {
+          // Anchor rolling-hill offset EXACTLY to flatY so resuming hills NEVER jump upward into a crest!
+          this._yOffset = flatY - rawHill;
           activeJump.appliedOffset = true;
         }
-        y = activeJump.launchY + activeJump.dropY;
       } else {
-        // Downward-sloped ski-jump landing catch runway (curves smoothly from tangent descent to level!)
-        const catchDrop = activeJump.isMega ? -3.6 : -2.4;
-        const landY = activeJump.launchY + activeJump.dropY;
-        const t = (id - activeJump.endSeg) / 14.0;
-        const catchY = landY + catchDrop * (1.0 - (1.0 - t) * (1.0 - t));
-        y = catchY + (baseY - catchY) * (t * t * t);
+        // 24-seg (72u) C1 smooth ease-in back into gentle hills from exact flatY (zero backlog, zero sudden crest!)
+        const u = (id - (activeJump.endSeg + 28)) / 24.0;
+        const ease = u * u * (3.0 - 2.0 * u);
+        const targetY = flatY + ((rawHill + this._yOffset) - flatY) * ease;
+        y = prev.baseY + (targetY - prev.baseY) * 0.18;
       }
     }
 
-    d = { curv, y, baseY: gap ? y : (activeJump && id > activeJump.endSeg ? y : baseY), gap, ramp };
+    const storedBase = (gap || (activeJump && id >= activeJump.endSeg)) ? y : baseY;
+    d = { curv, y, baseY: storedBase, gap, ramp };
     this._segData.set(id, d);
     return d;
   }
