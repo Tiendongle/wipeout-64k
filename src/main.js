@@ -58,8 +58,8 @@ synth.onJump = (dtAhead, isMega, energy) => {
   const worldS = ship.worldS + predictTrackSpeed(energy, isMega) * dtAhead;
   const j = track.scheduleJump(worldS, isMega);
   if (j) {
-    // Frame the lower landing deck with an iconic Wipeout overhead arch gantry!
-    renderer.spawnBillboard(j.landS + 14.0, 1);
+    // Frame the landing runway touchdown zone with an iconic Wipeout overhead arch gantry!
+    renderer.spawnBillboard(j.landS + 34.0, 1);
   }
 };
 

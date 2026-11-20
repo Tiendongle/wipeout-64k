@@ -140,17 +140,19 @@ export class Ship {
     this.latVel += latForce * dt;
     this.lat += this.latVel * dt;
 
-    // 3. Strong underpressure / ground-effect suspension + ballistic airborne arc over disconnected track jumps!
+    // 3. Strong underpressure / ground-effect suspension + soaring anti-grav glide over disconnected jumps!
     const air = track.getAirState(this.worldS, this._airState);
     this.inAir = air.inAir;
     if (this._wasInAir && !this.inAir) {
-      // Touchdown onto lower landing deck: crisp ground-effect cushion compression + thruster flare!
-      this.hoverVel = -4.2;
-      this.thrust = Math.max(this.thrust, 1.55);
+      // Gentle ground-effect cushion settle as craft flares onto landing runway!
+      this.hoverVel = -2.4;
+      this.thrust = Math.max(this.thrust, 1.45);
     }
     this._wasInAir = this.inAir;
-    this.airH += (air.airY - this.airH) * Math.min(1, dt * (this.inAir ? 18.0 : 14.0));
-    this.airPitch += (air.airPitch - this.airPitch) * Math.min(1, dt * 10.0);
+    // Follow launch fast, float down smoothly on anti-grav glide (never snaps down!)
+    const airRate = air.airY > this.airH ? 18.0 : 9.5;
+    this.airH += (air.airY - this.airH) * Math.min(1, dt * airRate);
+    this.airPitch += (air.airPitch - this.airPitch) * Math.min(1, dt * 8.5);
 
     const slopeDelta = (frame.pitch - this._prevSlope) / Math.max(0.008, dt);
     this._prevSlope = frame.pitch;
@@ -193,10 +195,9 @@ export class Ship {
     this.up[0] = nux; this.up[1] = nuy; this.up[2] = nuz;
     this.forward[0] = fx; this.forward[1] = fy; this.forward[2] = fz;
 
-    const totalH = this.hoverH + this.airH;
-    this.pos[0] = frame.x + frame.rx * this.lat + frame.ux * totalH;
-    this.pos[1] = frame.y + frame.ry * this.lat + frame.uy * totalH;
-    this.pos[2] = frame.z + frame.rz * this.lat + frame.uz * totalH;
+    this.pos[0] = frame.x + frame.rx * this.lat + frame.ux * this.hoverH;
+    this.pos[1] = frame.y + frame.ry * this.lat + frame.uy * this.hoverH + this.airH;
+    this.pos[2] = frame.z + frame.rz * this.lat + frame.uz * this.hoverH;
 
     // 5. Continuous thruster beam length & intensity (stays blazing bright even after camera catches up!)
     const speedFactor = Math.max(0, (this.relS - 10.0) / 42.0);

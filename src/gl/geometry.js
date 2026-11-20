@@ -322,12 +322,11 @@ export function writeBeamGeometry(track, ship, out) {
       const s = ship.worldS - engineBack - t * len;
       const fr = track.sampleAt(s, _bTmp);
       const air = track.getAirState(s, _bAir);
-      const h = baseH + air.airY;
 
       const shipWeight = (1 - t) * (1 - t) * Math.sqrt(1 - t);
-      let px = fr.x + fr.rx * lat + fr.ux * h;
-      let py = fr.y + fr.ry * lat + fr.uy * h;
-      let pz = fr.z + fr.rz * lat + fr.uz * h;
+      let px = fr.x + fr.rx * lat + fr.ux * baseH;
+      let py = fr.y + fr.ry * lat + fr.uy * baseH + air.airY;
+      let pz = fr.z + fr.rz * lat + fr.uz * baseH;
 
       if (i === 0) {
         px = ship.pos[0] + ship.right[0] * engineLat + ship.up[0] * engineUp - ship.forward[0] * engineBack;
