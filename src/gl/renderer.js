@@ -17,7 +17,7 @@ import {
   SHIP_VS, SHIP_FS,
   BEAM_VS, BEAM_FS,
   QUAD_VS, QUAD_FS,
-  POST_VS, BLOOM_EXTRACT_FS, BLUR_FS, DOF_COMPOSITE_FS
+  POST_VS, BLOOM_EXTRACT_FS, BLUR_FS, RADIAL_BLOOM_FS, DOF_COMPOSITE_FS
 } from './shaders.js';
 import {
   buildShipMesh,
@@ -54,6 +54,7 @@ export class Renderer {
     this.quadProg = createProgram(gl, QUAD_VS, QUAD_FS);
     this.bloomExtProg = createProgram(gl, POST_VS, BLOOM_EXTRACT_FS);
     this.blurProg = createProgram(gl, POST_VS, BLUR_FS);
+    this.radialBloomProg = createProgram(gl, POST_VS, RADIAL_BLOOM_FS);
     this.dofProg = createProgram(gl, POST_VS, DOF_COMPOSITE_FS);
 
     // Cache ALL uniform locations ONCE (eliminates ~50 gl.getUniformLocation calls per frame!)
@@ -64,12 +65,13 @@ export class Renderer {
     };
     this.u = {
       sky: loc(this.skyProg, ['uAspect', 'uTanHalfFov', 'uWorldYaw', 'uCamRight', 'uCamUp', 'uCamForward', 'uBeat', 'uTime']),
-      track: loc(this.trackProg, ['uView', 'uProj', 'uBeat', 'uAccent', 'uMaxDepth', 'uShipPos', 'uStabFlash', 'uRasterMode', 'uStepPulse', 'uTime', 'uPads[0]']),
+      track: loc(this.trackProg, ['uView', 'uProj', 'uBeat', 'uAccent', 'uMaxDepth', 'uShipPos', 'uStabFlash', 'uRasterMode', 'uStepPulse', 'uTime', 'uBeacons', 'uPads[0]']),
       quad: loc(this.quadProg, ['uView', 'uProj', 'uMaxDepth', 'uAlphaCut', 'uTex']),
       ship: loc(this.shipProg, ['uModel', 'uView', 'uProj', 'uCamPos', 'uBeamColor', 'uThrust', 'uMaxDepth']),
       beam: loc(this.beamProg, ['uView', 'uProj', 'uBeamColor', 'uIntensity', 'uTime', 'uMaxDepth']),
       bloomExt: loc(this.bloomExtProg, ['uScene']),
       blur: loc(this.blurProg, ['uTex', 'uDir']),
+      radialBloom: loc(this.radialBloomProg, ['uTex', 'uCenter', 'uStrength']),
       dof: loc(this.dofProg, ['uScene', 'uDepth', 'uBloom', 'uTexel', 'uFocusDepth', 'uDofStrength', 'uBloomStrength', 'uSpeedBlur', 'uBlurCenter', 'uShipUv', 'uRasterMode', 'uStepPulse'])
     };
     this._tanHalfFov = Math.tan(FOV_RAD * 0.5);
@@ -152,9 +154,11 @@ export class Renderer {
     // Reusable sample scratch
     this._tmpSample = {};
 
-    // Track 3 onStep pulse decay state & ship-tracked radial speed-blur state
+    // Track 3 onStep pulse decay state, acceleration-driven radial blur & toggleable trackside beacons (#4)
     this.stepPulse = 0;
     this._speedFilter = 0;
+    this._lastKph = 580;
+    this.beaconsOn = true;
     this._blurCx = 0.5;
     this._blurCy = 0.5;
     this._shipU = 0.5;
@@ -357,22 +361,18 @@ export class Renderer {
     const gl = this.gl;
     const U = this.u;
 
-    // True vehicle speed & forward-surge intensity (drives warp-FOV, radial speed filter & neon bloom!)
-    const speedNorm = Math.max(0, Math.min(1, (ship.kph - 560) / 620));
-    const surgeKick = Math.max(0, Math.min(1,
-      Math.max(0, ship.relVel) / 66 +
-      Math.max(0, ship.thrust - 0.62) * 0.42 +
-      (ship.catchUp || 0) * 0.34
-    ));
-    const modeBoost = music.mode === 'acid'
-      ? (music.filterCutoffNormalized || 0) * 0.24 + (music.accentTrigger || 0) * 0.20
-      : (music.dropFlash || 0) * 0.26 + (music.bassEnergy || 0) * 0.10;
-    const targetSpeedFilter = Math.min(1.25, speedNorm * 0.66 + surgeKick * 0.56 + modeBoost);
-    const sfRate = targetSpeedFilter > this._speedFilter ? 13.0 : 4.2;
+    // Proportional acceleration-delta streaks: 0 at steady/coasting, light on small pads, explosive on mega-launches & drops!
+    const kphRate = Math.max(0, (ship.kph - this._lastKph) / Math.max(0.004, dt));
+    this._lastKph = ship.kph;
+    const relDelta = Math.max(0, (ship.relVel - 4.0) / 108.0);
+    const kphDelta = Math.max(0, (kphRate - 45.0) / 880.0);
+    const targetSpeedFilter = Math.min(1.35, relDelta * 0.85 + kphDelta * 0.65);
+    const sfRate = targetSpeedFilter > this._speedFilter ? 18.0 : 4.8;
     this._speedFilter += (targetSpeedFilter - this._speedFilter) * Math.min(1, dt * sfRate);
+    if (this._speedFilter < 0.008) this._speedFilter = 0;
 
-    // Dynamic warp-FOV: widens smoothly (64° -> ~73.5°) with camera catch-up & live surge speed!
-    const dynFov = FOV_RAD + (ship.catchUp || 0) * 0.115 + this._speedFilter * 0.048;
+    // Dynamic warp-FOV: widens smoothly (64° -> ~74°) with camera catch-up & live acceleration kick!
+    const dynFov = FOV_RAD + (ship.catchUp || 0) * 0.115 + this._speedFilter * 0.052;
     const tanHalfFov = Math.tan(dynFov * 0.5);
     mat4Perspective(this.projMat, dynFov, this.width / this.height, 0.5, MAX_DEPTH + 40);
 
@@ -417,10 +417,10 @@ export class Renderer {
 
     this.stepPulse = Math.max(0, this.stepPulse - dt * 10.0);
 
-    // 1B. 3D Track + Chevron Barriers + Glowing Rails
+    // 1B. 3D Track + Chevron Barriers + Glowing Rails + Optional Neon Pylon Beacons
     gl.enable(gl.DEPTH_TEST);
     gl.depthMask(true);
-    const trackVertCount = writeTrackGeometry(track, this.trackBuf);
+    const trackVertCount = writeTrackGeometry(track, this.trackBuf, this.beaconsOn);
     gl.useProgram(this.trackProg);
     gl.uniformMatrix4fv(U.track.uView, false, this.viewMat);
     gl.uniformMatrix4fv(U.track.uProj, false, this.projMat);
@@ -433,6 +433,7 @@ export class Renderer {
     gl.uniform1f(U.track.uRasterMode, music.rasterMode || 0);
     gl.uniform1f(U.track.uStepPulse, this.stepPulse);
     gl.uniform1f(U.track.uTime, nowSec);
+    gl.uniform1f(U.track.uBeacons, this.beaconsOn ? 1.0 : 0.0);
     // Pack up to 8 visible beat-synced speed pads into zero-alloc Float32Array uniform!
     this._padData.fill(0);
     let pCount = 0;
@@ -554,36 +555,7 @@ export class Renderer {
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
 
-    // =========================================================================
-    // PASS 3: Full-Res 12-Tap Precomputed Vogel-Disk Depth of Field + Bloom
-    // =========================================================================
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, this.width, this.height);
-    gl.useProgram(this.dofProg);
-
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.sceneFbo.colorTex);
-    gl.uniform1i(U.dof.uScene, 0);
-
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.sceneFbo.depthInfoTex);
-    gl.uniform1i(U.dof.uDepth, 1);
-
-    gl.activeTexture(gl.TEXTURE2);
-    gl.bindTexture(gl.TEXTURE_2D, this.bloomFboA.tex);
-    gl.uniform1i(U.dof.uBloom, 2);
-
-    gl.uniform2f(U.dof.uTexel, 1.0 / this.width, 1.0 / this.height);
-    gl.uniform1f(U.dof.uFocusDepth, focusDepth);
-    const dofAmt = music.mode === 'retrowave' ? (0.76 + (music.padLFO || 0.5) * 0.16) : 0.82;
-    gl.uniform1f(U.dof.uDofStrength, dofAmt);
-    const bloomAmt = 0.78 + music.kick * 0.18 + (music.dropFlash || 0) * 0.28 +
-      (music.stabPulse || 0) * 0.20 + (music.accentTrigger || 0) * 0.18 +
-      this._speedFilter * 0.22 + Math.max(0, ship.thrust - 0.55) * 0.16 +
-      (music.mode === 'retrowave' ? (music.subBassEnvelope || 0) * 0.16 : 0);
-    gl.uniform1f(U.dof.uBloomStrength, bloomAmt);
-    gl.uniform1f(U.dof.uSpeedBlur, this._speedFilter);
-    // Project live ship UV & forward heading vanishing point for ship-tracked radial blur A/B test
+    // Project live ship UV & forward heading vanishing point for cascaded radial streaks & ship shield
     const vm = this.viewMat, pm = this.projMat;
     const sp = ship.pos, sf = ship.forward, sr = ship.right;
     const sVx = vm[0] * sp[0] + vm[4] * sp[1] + vm[8] * sp[2] + vm[12];
@@ -607,6 +579,44 @@ export class Renderer {
     this._blurCx += ((rawAU * 0.68 + rawSU * 0.32) - this._blurCx) * trackAlpha;
     this._blurCy += ((rawAV * 0.68 + rawSV * 0.32) - this._blurCy) * trackAlpha;
 
+    // Pass 2C: Quarter-Res Cascaded Peak-Preserving Radial Bloom Streak Pass (bloomFboA -> bloomFboB)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomFboB.fbo);
+    gl.useProgram(this.radialBloomProg);
+    gl.bindTexture(gl.TEXTURE_2D, this.bloomFboA.tex);
+    gl.uniform1i(U.radialBloom.uTex, 0);
+    gl.uniform2f(U.radialBloom.uCenter, this._blurCx, this._blurCy);
+    gl.uniform1f(U.radialBloom.uStrength, this._speedFilter);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    // =========================================================================
+    // PASS 3: Full-Res 12-Tap Vogel-Disk DoF + Cascaded Radial Streaks + Bloom
+    // =========================================================================
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.width, this.height);
+    gl.useProgram(this.dofProg);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.sceneFbo.colorTex);
+    gl.uniform1i(U.dof.uScene, 0);
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.sceneFbo.depthInfoTex);
+    gl.uniform1i(U.dof.uDepth, 1);
+
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.bloomFboB.tex);
+    gl.uniform1i(U.dof.uBloom, 2);
+
+    gl.uniform2f(U.dof.uTexel, 1.0 / this.width, 1.0 / this.height);
+    gl.uniform1f(U.dof.uFocusDepth, focusDepth);
+    const dofAmt = music.mode === 'retrowave' ? (0.76 + (music.padLFO || 0.5) * 0.16) : 0.82;
+    gl.uniform1f(U.dof.uDofStrength, dofAmt);
+    const bloomAmt = 0.78 + music.kick * 0.18 + (music.dropFlash || 0) * 0.28 +
+      (music.stabPulse || 0) * 0.20 + (music.accentTrigger || 0) * 0.18 +
+      this._speedFilter * 0.24 + Math.max(0, ship.thrust - 0.55) * 0.16 +
+      (music.mode === 'retrowave' ? (music.subBassEnvelope || 0) * 0.16 : 0);
+    gl.uniform1f(U.dof.uBloomStrength, bloomAmt);
+    gl.uniform1f(U.dof.uSpeedBlur, this._speedFilter);
     gl.uniform2f(U.dof.uBlurCenter, this._blurCx, this._blurCy);
     gl.uniform2f(U.dof.uShipUv, this._shipU, this._shipV);
     gl.uniform1f(U.dof.uRasterMode, music.rasterMode || 0);

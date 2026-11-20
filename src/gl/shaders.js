@@ -150,6 +150,7 @@ uniform float uStabFlash;
 uniform float uRasterMode;
 uniform float uStepPulse;
 uniform float uTime;
+uniform float uBeacons;
 uniform vec4 uPads[8];
 
 layout(location = 0) out vec4 outColor;
@@ -235,9 +236,23 @@ void main() {
     // Dark bottom trim & top cap
     col = mix(vec3(0.08, 0.08, 0.12), col, smoothstep(0.0, 0.14, h) * smoothstep(1.0, 0.86, h));
     col *= (0.65 + 0.35 * ndl);
-  } else {
+    // Toggleable #4: Rhythmic neon barrier chase strips for extra peripheral streak contrast
+    if (uBeacons > 0.5) {
+      float chase = step(0.68, fract(s * 0.085 - uTime * 1.4)) * smoothstep(0.58, 0.78, h) * smoothstep(0.95, 0.84, h);
+      vec3 bCol = mix(uAccent, vec3(1.0, 0.82, 0.18), step(0.5, fract(s * 0.022)));
+      col = mix(col, bCol * (1.45 + 0.45 * uBeat + 0.65 * uStabFlash), chase);
+    }
+  } else if (vMat < 2.5) {
     // Glowing anti-grav side energy rail (Track 2 stabTriggers & Track 4 accentTrigger flash!)
-    col = mix(vec3(0.05, 0.92, 1.0), uAccent, 0.45) * (1.25 + 0.45 * uBeat + 0.95 * uStabFlash);
+    float pulse = uBeacons > 0.5 ? (1.0 + 0.55 * step(0.66, fract(vUv.y * 0.075 - uTime * 2.4))) : 1.0;
+    col = mix(vec3(0.05, 0.92, 1.0), uAccent, 0.45) * (1.25 + 0.45 * uBeat + 0.95 * uStabFlash) * pulse;
+  } else {
+    // Toggleable #4: High-contrast Wipeout angled neon trackside light-pylon beacon!
+    float h = vUv.x; // 0 = base stalk, 1 = top beacon head
+    float lit = smoothstep(0.30, 0.48, h);
+    vec3 bCol = mix(uAccent, vec3(1.0, 0.84, 0.22), step(0.5, fract(vUv.y * 0.021)));
+    vec3 head = mix(bCol, vec3(1.0, 0.99, 0.96), smoothstep(0.55, 0.95, h) * 0.45);
+    col = mix(vec3(0.10, 0.10, 0.15), head * (1.55 + 0.50 * uBeat + 0.75 * uStabFlash), lit);
   }
 
   // Distance atmospheric pink horizon fog
@@ -467,6 +482,44 @@ void main() {
   outColor = vec4(sum, 1.0);
 }`;
 
+// Quarter-res Pass 1 of Cascaded Peak-Preserving Radial Neon Light-Streaks (8x8 = 64 silky effective taps!)
+export const RADIAL_BLOOM_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uTex;
+uniform vec2 uCenter;
+uniform float uStrength;
+out vec4 outColor;
+void main() {
+  vec3 base = texture(uTex, vUv).rgb;
+  vec2 rad = vUv - uCenter;
+  float rDist = length(rad * vec2(1.0, 0.84));
+  float mask = smoothstep(0.04, 0.56, rDist);
+  float s = smoothstep(0.06, 1.10, uStrength);
+  if (s < 0.01 || mask < 0.01) {
+    outColor = vec4(base, 1.0);
+    return;
+  }
+  float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  vec2 vel = rad * (0.40 * s * mask * (0.75 + 0.55 * rDist));
+  vec3 acc = base * 0.5;
+  vec3 peak = base;
+  float wSum = 0.5;
+  for (int i = 0; i < 8; i++) {
+    float t = (float(i) + ign) * 0.125;
+    vec2 uv = clamp(vUv - vel * t, vec2(0.001), vec2(0.999));
+    vec3 c = texture(uTex, uv).rgb;
+    float w = pow(1.0 - t, 0.52);
+    acc += c * w;
+    wSum += w;
+    peak = max(peak, c * pow(1.0 - t, 0.48));
+  }
+  vec3 streaked = mix(acc / wSum, peak, 0.62 * s);
+  float lum = dot(streaked, vec3(0.2126, 0.7152, 0.0722));
+  streaked = max(vec3(0.0), mix(vec3(lum), streaked, 1.24));
+  outColor = vec4(mix(base, streaked, clamp(mask * (0.45 + 0.55 * s), 0.0, 1.0)), 1.0);
+}`;
+
 export const DOF_COMPOSITE_FS = `#version 300 es
 precision highp float;
 in vec2 vUv;
@@ -524,50 +577,61 @@ void main() {
 
   vec3 col = acc / wSum;
 
-  // Ship-Tracked Long-Streak Radial Zoom Blur + Luminous Neon Light-Streaks
+  // Ship-Tracked Cascaded Peak-Preserving Radial Zoom Blur + Luminous Hyperspace Light-Streaks
   vec2 rad = vUv - uBlurCenter;
   float rDist = length(rad * vec2(1.0, 0.84));
-  float edge = smoothstep(0.08, 0.62, rDist);
+  float edge = smoothstep(0.07, 0.58, rDist);
   vec3 bloomStreak = vec3(0.0);
   if (uSpeedBlur > 0.015 && edge > 0.005) {
     float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     float shipDist = length((vUv - uShipUv) * vec2(1.35, 1.10));
     float isShip = (1.0 - smoothstep(0.08, 0.21, shipDist)) * (1.0 - smoothstep(0.012, 0.032, abs(centerD - uFocusDepth)));
     float radialMask = edge * (1.0 - isShip);
-    float surgeAmt = smoothstep(0.06, 1.10, uSpeedBlur);
-    vec2 vel = rad * (0.34 * surgeAmt * radialMask);
+    float surgeAmt = smoothstep(0.05, 1.12, uSpeedBlur);
+    // Quadratic outer stretch + flatter tail falloff + peak-preserving highlight smearing!
+    vec2 vel = rad * (0.48 * surgeAmt * radialMask * (0.75 + 0.65 * rDist));
     if (dot(vel, vel) > 1e-7) {
-      vec3 mAcc = col * 0.55;
-      float mW = 0.55;
+      vec3 mAcc = col * 0.45;
+      vec3 mPeak = col;
+      float mW = 0.45;
       for (int i = 0; i < 14; i++) {
         float t = (float(i) + ign) / 14.0;
         vec2 suv = clamp(vUv - vel * t, vec2(0.001), vec2(0.999));
-        float w = pow(1.0 - t, 0.68);
-        mAcc += texture(uScene, suv).rgb * w;
+        vec3 s = texture(uScene, suv).rgb;
+        float w = pow(1.0 - t, 0.42);
+        mAcc += s * w;
         mW += w;
+        mPeak = max(mPeak, s * pow(1.0 - t, 0.56));
       }
-      col = mix(col, mAcc / mW, clamp(radialMask * (0.42 + 0.56 * surgeAmt), 0.0, 0.96));
+      vec3 mFinal = mix(mAcc / mW, mPeak, 0.16 * surgeAmt);
+      float mLum = dot(mFinal, vec3(0.2126, 0.7152, 0.0722));
+      mFinal = max(vec3(0.0), mix(vec3(mLum), mFinal, 1.0 + 0.24 * surgeAmt * radialMask));
+      col = mix(col, mFinal, clamp(radialMask * (0.45 + 0.53 * surgeAmt), 0.0, 0.98));
 
-      // Peripheral radial chromatic dispersion (warm/cool edge streak fringe)
-      vec2 caOff = vel * 0.14;
+      // Punchier peripheral radial chromatic dispersion along the streak vector
+      vec2 caOff = vel * 0.20;
       float rCh = texture(uScene, clamp(vUv + caOff, vec2(0.001), vec2(0.999))).r;
       float bCh = texture(uScene, clamp(vUv - caOff, vec2(0.001), vec2(0.999))).b;
-      float caMix = clamp(0.38 * surgeAmt * radialMask, 0.0, 0.40);
+      float caMix = clamp(0.46 * surgeAmt * radialMask, 0.0, 0.48);
       col.r = mix(col.r, rCh, caMix);
       col.b = mix(col.b, bCh, caMix);
 
-      // Luminous radial neon light-streaks pulled outward from quarter-res bloom buffer
-      vec2 bVel = rad * (0.48 * surgeAmt * smoothstep(0.05, 0.56, rDist));
+      // Second cascade pass (8x8 = 64 silky taps!) peak-preserving neon light-streaks from uBloom!
+      vec2 bVel = rad * (0.64 * surgeAmt * smoothstep(0.04, 0.55, rDist));
       vec3 bAcc = vec3(0.0);
+      vec3 bPeak = vec3(0.0);
       float bW = 0.0;
       for (int i = 0; i < 8; i++) {
         float t = (float(i) + ign) * 0.125;
         vec2 buv = clamp(vUv - bVel * t, vec2(0.001), vec2(0.999));
-        float w = pow(1.0 - t, 1.05);
-        bAcc += texture(uBloom, buv).rgb * w;
+        vec3 bs = texture(uBloom, buv).rgb;
+        float w = pow(1.0 - t, 0.65);
+        bAcc += bs * w;
         bW += w;
+        bPeak = max(bPeak, bs * pow(1.0 - t, 0.48));
       }
-      bloomStreak = (bAcc / max(bW, 0.001)) * (0.68 * surgeAmt * radialMask);
+      vec3 bFinal = mix(bAcc / max(bW, 0.001), bPeak, 0.62 * surgeAmt);
+      bloomStreak = bFinal * (0.96 * surgeAmt * radialMask);
     }
   }
 
