@@ -198,9 +198,9 @@ export class Renderer {
   spawnLyric(word, trackDist, energy) {
     if (!this.lyricAtlas || !this.lyricAtlas.map.has(word)) return;
     const lanePick = this._lyricLaneToggle++ % 3;
-    // Alternate left, overhead-center, right racing lanes
-    const lat = lanePick === 0 ? -5.8 : lanePick === 1 ? 0.0 : 5.8;
-    const height = lanePick === 1 ? 5.6 : 3.4;
+    // Alternate left, overhead-center, right racing lanes (sized for larger 3D banners)
+    const lat = lanePick === 0 ? -6.4 : lanePick === 1 ? 0.0 : 6.4;
+    const height = lanePick === 1 ? 6.6 : 4.2;
     this.activeLyrics.push({
       word,
       s: trackDist + 210.0,
@@ -357,19 +357,20 @@ export class Renderer {
       if (l.s > track.dist + AHEAD_SEGS * SEG_LEN - 10) continue;
 
       const distToShip = Math.abs(l.s - ship.worldS);
-      const pop = 1.0 + (distToShip < 38.0 ? music.beatPulse * 0.14 : 0.0);
-      const prog = Math.max(0.05, Math.min(1.15, 1.08 - (l.s - ship.worldS) / 70.0));
+      const pop = 1.0 + (distToShip < 44.0 ? music.beatPulse * 0.14 : 0.0);
+      // Hollow outlined when distant (>165u), smoothly fills in left-to-right as it approaches!
+      const prog = Math.max(0.0, Math.min(1.18, (165.0 - (l.s - ship.worldS)) / 130.0));
 
       // 2 faint trailing karaoke echo ghosts behind the main word
       for (let g = 2; g >= 1; g--) {
-        track.sampleAt(l.s + g * 2.6, fr);
+        track.sampleAt(l.s + g * 2.8, fr);
         o = this._pushQuad(
           this.quadBuf, o,
           fr.x + fr.rx * l.lat + fr.ux * l.height,
           fr.y + fr.ry * l.lat + fr.uy * l.height,
           fr.z + fr.rz * l.lat + fr.uz * l.height,
           fr.rx, fr.ry, fr.rz, fr.ux, fr.uy, fr.uz,
-          4.6 * pop, 1.72 * pop, uv.u0, uv.v0, uv.u1, uv.v1, -9.0
+          7.2 * pop, 2.52 * pop, uv.u0, uv.v0, uv.u1, uv.v1, -9.0
         );
       }
 
@@ -381,7 +382,7 @@ export class Renderer {
         fr.y + fr.ry * l.lat + fr.uy * l.height,
         fr.z + fr.rz * l.lat + fr.uz * l.height,
         fr.rx, fr.ry, fr.rz, fr.ux, fr.uy, fr.uz,
-        4.6 * pop, 1.72 * pop, uv.u0, uv.v0, uv.u1, uv.v1, prog, prog - 1.0
+        7.2 * pop, 2.52 * pop, uv.u0, uv.v0, uv.u1, uv.v1, prog, prog - 1.0
       );
     }
     return o / 6;

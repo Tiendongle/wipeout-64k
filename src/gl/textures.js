@@ -97,8 +97,8 @@ export function createLyricAtlas(gl, words, accentHex) {
   const unique = [...new Set(words)];
   const cols = unique.length > 32 ? 8 : 4;
   const rows = Math.max(4, Math.ceil(unique.length / cols));
-  const cellW = 256;
-  const cellH = 96;
+  const cellW = 320;
+  const cellH = 112;
 
   const c = document.createElement('canvas');
   c.width = cols * cellW;
@@ -116,21 +116,24 @@ export function createLyricAtlas(gl, words, accentHex) {
     const cx = x + cellW * 0.5;
     const cy = y + cellH * 0.52;
 
-    // RGB-channel-encoded holographic karaoke word:
-    // R = crisp wireframe outline, B = offset drop-shadow, G = solid karaoke sweep fill!
+    // RGB-channel-encoded high-contrast holographic karaoke word:
+    // B = bold outer dark casing, R = crisp neon wireframe outline, G = solid fill-in core!
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const fontSize = word.length > 12 ? 25 : word.length > 9 ? 31 : word.length > 6 ? 39 : 48;
+    const fontSize = word.length > 12 ? 32 : word.length > 9 ? 40 : word.length > 6 ? 50 : 60;
     ctx.font = `italic 900 ${fontSize}px Eurostile, Bahnschrift, Impact, sans-serif`;
     ctx.lineJoin = 'round';
 
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.lineWidth = 4.5;
-    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = 14.0;
+    ctx.strokeStyle = '#0000ff';
     ctx.strokeText(word, cx, cy);
     ctx.fillStyle = '#0000ff';
-    ctx.fillText(word, cx + 4, cy + 3);
+    ctx.fillText(word, cx + 4, cy + 4);
+    ctx.lineWidth = 7.0;
+    ctx.strokeStyle = '#ff0000';
+    ctx.strokeText(word, cx, cy);
     ctx.fillStyle = '#00ff00';
     ctx.fillText(word, cx, cy);
     ctx.restore();

@@ -421,30 +421,33 @@ void main() {
   vec3 col;
   float a = tex.a;
   if (uLyricMode > 0.5) {
-    // RGB-channel-encoded karaoke lyric: R = outline, B = offset shadow, G = solid fill
+    // RGB-channel-encoded karaoke lyric: B = dark outer casing, R = neon outline, G = fill-in core
     float outline = tex.r;
     float fillM = tex.g;
-    float shad = tex.b;
+    float casing = tex.b;
     if (vGlow < -4.0) {
-      // Faint trailing wireframe echo ghost
-      col = mix(vec3(0.0, 0.92, 1.0), uAccent, 0.45) * 1.25;
-      a = outline * 0.30;
+      // Subtle trailing wireframe echo ghost behind the main word
+      col = mix(vec3(0.0, 0.92, 1.0), uAccent, 0.5) * 1.15;
+      a = outline * 0.22;
     } else {
-      float sweep = smoothstep(-0.08, 0.06, vGlow);
-      float cov = max(outline * 0.85, max(fillM, shad) * sweep);
+      float sweep = smoothstep(-0.07, 0.07, vGlow);
+      // Crisp outer stroke (outline outside fill) + dark casing always readable even at distance!
+      float edgeStroke = clamp(outline - fillM * 0.85, 0.0, 1.0);
+      float darkAlpha = clamp(casing * 0.88 + fillM * 0.22, 0.0, 1.0);
+      float cov = max(darkAlpha, max(outline, fillM * sweep));
       if (cov < 0.05) discard;
-      vec3 baseCol = vec3(0.92, 0.91, 0.88);
-      vec3 shadCol = mix(vec3(0.0, 0.92, 1.0), uAccent, 0.30) * 1.15;
-      vec3 litCol = mix(uAccent, vec3(1.0, 0.96, 0.90), 0.42) * 1.50;
-      col = mix(baseCol, shadCol, shad * sweep);
-      col = mix(col, litCol, fillM * sweep);
+      vec3 casingCol = vec3(0.04, 0.03, 0.08);
+      vec3 strokeCol = mix(uAccent, vec3(1.0, 0.99, 0.96), 0.52) * 1.38;
+      vec3 fillCol = mix(vec3(1.0, 0.99, 0.95), uAccent, 0.24) * 1.48;
+      col = mix(casingCol, strokeCol, clamp(edgeStroke * 1.35 + outline * (1.0 - fillM) * 0.9, 0.0, 1.0));
+      col = mix(col, fillCol, fillM * sweep);
       a = cov;
     }
   } else {
     col = tex.rgb * (1.0 + vGlow * 0.85);
   }
   float fog = smoothstep(155.0, 385.0, vViewZ);
-  col = mix(col, vec3(0.98, 0.66, 0.72), fog * 0.85);
+  col = mix(col, vec3(0.98, 0.66, 0.72), fog * (uLyricMode > 0.5 ? 0.42 : 0.85));
 
   float d = clamp(vViewZ / uMaxDepth, 0.0, 1.0);
   outColor = vec4(col, a);
