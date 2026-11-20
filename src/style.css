@@ -349,6 +349,7 @@ html, body {
   border-bottom: 3px solid var(--amber);
   padding: 6px 14px;
   min-width: 220px;
+  max-width: min(560px, 92vw);
   text-align: right;
   contain: layout style paint;
 }
@@ -361,13 +362,15 @@ html, body {
 }
 
 .karaoke-text {
-  font-size: 15px;
+  font-size: clamp(11px, 1.35vw, 15px);
   font-weight: 900;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #fff;
   margin-top: 2px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .start-overlay {

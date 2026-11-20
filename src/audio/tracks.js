@@ -11,6 +11,66 @@
 
 const P = s => [...s].map(c => c === '-' ? -1 : +c);
 
+// Split a timed lyric line into crisp 1-2 word 3D holographic chunks (<= 13 chars)
+export function splitLyricChunks(line) {
+  const words = line.toUpperCase().replace(/[(),]/g, '').split(/\s+/).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < words.length; i++) {
+    if (i + 1 < words.length && words[i].length + 1 + words[i + 1].length <= 13) {
+      out.push(words[i] + ' ' + words[i + 1]);
+      i++;
+    } else {
+      out.push(words[i]);
+    }
+  }
+  return out.length ? out : [line.toUpperCase()];
+}
+
+// Evenly distribute string lines across [startSec, startSec + totalDur]
+function E(startSec, totalDur, lines) {
+  const d = +(totalDur / lines.length).toFixed(2);
+  return lines.map((l, i) => [+(startSec + i * d).toFixed(2), d, l]);
+}
+
+// Repeat a timed lyric block proportionally across [startSec, startSec + totalDur]
+function R(startSec, totalDur, block) {
+  let sum = 0;
+  for (const b of block) sum += b[1];
+  const scale = sum > 0 ? totalDur / sum : 1;
+  let cur = startSec;
+  return block.map(b => {
+    const d = +(b[1] * scale).toFixed(2);
+    const e = [+cur.toFixed(2), d, b[2]];
+    cur += d;
+    return e;
+  });
+}
+
+const T1_CH = [
+  [27, 3, 'SYSTEM OVERVOLTAGE'],
+  [30, 3, 'CYBERNETIC SPEED LOCK'],
+  [33, 3, 'REDLINE THE REACTOR'],
+  [36, 3, 'TICKING DOWN THE GRID CLOCK'],
+  [39, 3, 'SHIFT INTO THE MAINFRAME'],
+  [42, 3, 'VECTOR RAYS ALIGN'],
+  [45, 2, 'OVERDRIVE (OVERDRIVE)'],
+  [47, 1, 'CROSSING THROUGH THE FINISH LINE']
+];
+const T1_V1 = [
+  [52, 4, 'GRID LINE RENDER ON THE VECTOR SCREEN'],
+  [56, 4, 'CURRENT SURGING THROUGH THE MAIN MACHINE'],
+  [60, 4, 'MAGNETIC LEVITATION LOCKED IN PLACE'],
+  [64, 4, 'DIGITAL PHANTOM IN AN ENDLESS SPACE'],
+  [68, 2, 'CAPACITOR BURNING AT MAXIMUM LOAD'],
+  [70, 2, 'TRACING THE EDGE OF THE WIREFRAME ROAD']
+];
+const T2_CH = [
+  'HIGH VOLTAGE, HEAVY LEAD',
+  'BURYING THE METER IN THE RED',
+  'PUSHING PAST THE APEX NOW',
+  'RUNNING HOT, NO BACKING DOWN'
+];
+
 export const TRACKS = [
   // =========================================================================
   // 01 // ZERO FRICTION — Breakbeat / Neuro-Wobble Synthwave (150 BPM, D min)
@@ -95,13 +155,23 @@ export const TRACKS = [
       { bars: 4, chordOff: 4, name: 'IGNITE',     energy: 0.90, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, arp: 1.00, chord: 0.95, lead: 0, solo: 0, vStab: 0.95, pad: 0.88, filter: 0.95, roll: 1, drop: 0, tomFill: 1 },
       { bars: 8, chordOff: 0, name: 'SPEED DROP', energy: 1.00, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, arp: 0.95, chord: 1.00, lead: 0, solo: 1, vStab: 1.00, pad: 0.85, filter: 1.00, roll: 0, drop: 1, tomFill: 1 }
     ],
-    lyrics: [
-      'ZERO', 'FRICTION', 'KINETIC', 'DRIVE',
-      'FEEL THE', 'SYSTEM', 'COME ALIVE', 'SPEED IS',
-      'RISING', 'FRICTION', 'DIES', 'CYBER',
-      'POWER', 'OPEN WIDE', 'SPEED', 'DROP',
-      'KINETIC', 'VELOCITY', 'NEVER', 'STOP'
-    ]
+    trackDur: 169,
+    timedLyrics: [
+      [6, 6, 'SYSTEM CHECK'],
+      [12, 6, 'ANTI-GRAV ENGAGE'],
+      [18, 3, 'ZERO GROUND'],
+      [21, 3, 'ZERO DRAG'],
+      ...T1_CH,
+      ...T1_V1,
+      ...R(72, 24, T1_CH),
+      ...R(96, 24, T1_V1),
+      ...R(120, 24, T1_CH.slice(0, 6)),
+      [144, 6, 'OVERDRIVE'],
+      [150, 6, 'ZERO GROUND'],
+      [156, 6, 'ZERO DRAG'],
+      [162, 7, 'CROSSING THROUGH THE FINISH LINE']
+    ],
+    lyrics: []
   },
 
   // =========================================================================
@@ -182,13 +252,48 @@ export const TRACKS = [
       { bars: 4, chordOff: 4, name: 'APEX BUILD',   energy: 0.92, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, chug: 1.00, stab: 1.00, lead: 0, solo: 0, vStab: 0.90, pad: 0.75, filter: 0.95, roll: 1, drop: 0, tomFill: 1 },
       { bars: 8, chordOff: 0, name: 'OVERDRIVE',    energy: 1.00, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, chug: 1.00, stab: 1.00, lead: 0, solo: 1, vStab: 1.00, pad: 0.80, filter: 1.00, roll: 0, drop: 1, tomFill: 1 }
     ],
-    lyrics: [
-      'REDLINE', 'HIT THE GAS', 'HIGH', 'VOLTAGE',
-      'HEAVY LEAD', 'BURY THE', 'METER', 'IN THE RED',
-      'PAST THE', 'APEX NOW', 'SPEED IS', 'ADDICTION',
-      'OVERDRIVE', 'TAKE', 'CONTROL', 'GRIDLOCK',
-      'BROKEN', 'FULL', 'THROTTLE'
-    ]
+    trackDur: 157,
+    timedLyrics: [
+      [0, 4, 'REDLINE'],
+      [4, 4, 'HIT THE GAS'],
+      [18, 3, 'PHOSPHOR FLICKERING ON CHROME'],
+      [21, 4, 'THREE HUNDRED ON THE TACTICAL ZONE'],
+      [25, 3, 'ASPHALT HUMMING IN THE DARK'],
+      [28, 4, 'FUEL BURNING DOWN TO THE SPARK'],
+      [32, 3, 'NO ROOM LEFT FOR MISTAKES'],
+      [35, 3, 'CUTTING OFF THE STATIC AND THE BREAKS'],
+      [38, 3, "I DON'T NEED YOUR TOXIC NOISE"],
+      [41, 4, "I'M BREAKING FREE FROM EMPTY TOYS"],
+      ...E(45, 7, [
+        'HEART RATE SPIKING TO THE CEILING',
+        'LOSS OF CONTROL IS A DANGEROUS FEELING',
+        'HANDS ON THE WHEEL, EYES ON THE LINE',
+        'STEPPING THROUGH THE SHIFT IN TIME'
+      ]),
+      ...E(52, 28, [
+        ...T2_CH,
+        'HIGH VOLTAGE, ZERO FRICTION',
+        'SPEED IS THE ULTIMATE ADDICTION',
+        'OVERDRIVE',
+        'TAKE CONTROL'
+      ]),
+      ...E(90, 20, [
+        'CARBON FIBER, PURE REACTION',
+        'TIRES FIGHTING FOR THE TRACTION',
+        'LEFT THE DRAMA IN THE DUST',
+        'IRON DISCIPLINE AND TRUST',
+        'ZERO NOISE, CLEAR MIND',
+        'LEAVE THE WRECKAGE FAR BEHIND'
+      ]),
+      ...E(130, 27, [
+        ...T2_CH,
+        'REDLINE',
+        'GRID LOCK BROKEN',
+        'FULL THROTTLE',
+        'OVERDRIVE'
+      ])
+    ],
+    lyrics: []
   },
 
   // =========================================================================
@@ -272,12 +377,25 @@ export const TRACKS = [
       { bars: 4, chordOff: 4, name: 'FULL SPEED',  energy: 0.92, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, arp: 1.00, stab: 1.00, lead: 0, solo: 0, pad: 0.45, filter: 0.98, roll: 1, drop: 0, tomFill: 1 },
       { bars: 8, chordOff: 0, name: 'FRAME CLEAR', energy: 1.00, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, arp: 1.00, stab: 1.00, lead: 0, solo: 1, pad: 0.50, filter: 1.00, roll: 0, drop: 1, tomFill: 1 }
     ],
-    lyrics: [
-      'GENERATING', 'VECTOR', 'FRAMES', 'PROCESSING',
-      'ALIGNMENT', 'POINTS', 'MATRIX', 'FULL SPEED',
-      'WIREFRAME', 'LIGHT', 'ANTI-GRAV', 'ENGAGE',
-      'MAGNETIC', 'PULSE', 'FRAME', 'BUFFER', 'CLEAR'
-    ]
+    trackDur: 170,
+    timedLyrics: [
+      [0, 12, 'GENERATING VECTOR FRAMES'],
+      [12, 12, 'MATRIX GRID ONLINE'],
+      [24, 12, 'TRACKER PROTOCOL ACTIVE'],
+      [36, 6, 'RENDER THE MATRIX IN FULL SPEED'],
+      [42, 6, 'RENDER THE MATRIX IN FULL SPEED'],
+      [48, 12, 'PROCESSING LINES AND POINTS'],
+      [60, 12, 'CALCULATING THE PIXEL DEPTH'],
+      [72, 12, 'TRACKER PROTOCOL ACTIVE'],
+      [84, 12, 'RENDER THE MATRIX IN FULL SPEED'],
+      [96, 12, 'VECTOR MATRIX RENDERING'],
+      [108, 12, 'EXECUTE THE SUB-ROUTINE'],
+      [120, 12, 'TRACKER PROTOCOL ACTIVE'],
+      [132, 12, 'RENDER THE MATRIX IN FULL SPEED'],
+      [144, 12, 'FRAME BUFFER CLEARED'],
+      [156, 14, 'MATRIX POWER DOWN']
+    ],
+    lyrics: []
   },
 
   // =========================================================================
@@ -369,12 +487,20 @@ export const TRACKS = [
       { bars: 4, chordOff: 4, name: 'ACID SURGE', energy: 0.92, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, acid: 1.00, stab: 1.00, ride: 0.80, lead: 0, solo: 0, chop: 1.00, pad: 0.45, filter: 0.94, roll: 1, drop: 0, tomFill: 1 },
       { bars: 8, chordOff: 0, name: 'VECTOR MAX', energy: 1.00, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, acid: 1.00, stab: 1.00, ride: 1.00, lead: 0, solo: 1, chop: 1.00, pad: 0.50, filter: 1.00, roll: 0, drop: 1, tomFill: 1 }
     ],
-    lyrics: [
-      'VECTOR', 'MATRIX', 'ACID', 'PROTOCOL',
-      'RESONANCE', 'LOCKED', 'SLIDE', 'ACCENT',
-      'OVERRIDE', 'HYPER', 'GRID', 'WIREFRAME',
-      'SURGE', 'MAXIMUM', 'VELOCITY'
-    ]
+    trackDur: 175,
+    timedLyrics: [
+      [24.8, 12.2, 'ZERO FRICTION KINETIC DRIVE'],
+      [37.0, 12.5, 'FEEL THE SYSTEM COME ALIVE'],
+      [49.5, 6.2, 'SPEED IS RISING, FRICTION DIES'],
+      [55.7, 6.2, 'CYBER POWER OPEN WIDE'],
+      [61.9, 16.1, 'ZERO FRICTION, SPEED DROP'],
+      [78.0, 21.1, 'NEVER SLOW DOWN, NEVER STOP'],
+      [99.1, 12.4, 'KINETIC VELOCITY REACHING THE PEAK'],
+      [111.5, 12.4, 'ZERO FRICTION IS THE POWER WE SEEK'],
+      [123.9, 25.5, 'ZERO FRICTION, SPEED DROP'],
+      [149.4, 25.6, 'NEVER SLOW DOWN, NEVER STOP']
+    ],
+    lyrics: []
   },
 
   // =========================================================================
@@ -455,13 +581,36 @@ export const TRACKS = [
       { bars: 4, chordOff: 4, name: 'ASCENT',      energy: 0.80, drumSet: 1, kick: 1.00, snare: 0.95, hat: 0.90, bass: 0.95, ep: 0.90, arp: 0.90, lead: 0, solo: 0, pad: 1.00, filter: 0.92, roll: 1, drop: 0, tomFill: 1 },
       { bars: 8, chordOff: 0, name: 'NEON STREAM', energy: 0.98, drumSet: 1, kick: 1.00, snare: 1.00, hat: 0.95, bass: 1.00, ep: 0.85, arp: 0.85, lead: 0, solo: 1, pad: 1.00, filter: 1.00, roll: 0, drop: 1, tomFill: 1 }
     ],
-    lyrics: [
-      'FLOATING', 'IN THE', 'NEON LIGHT', 'CITY',
-      'STREETS', 'TONIGHT', 'ANTI-GRAV', 'TAKES',
-      'CONTROL', 'CRUISING', 'GLOWING', 'GRID',
-      'DRIFT AWAY', 'NEON', 'STREAMS', 'FUTURISTIC',
-      'DREAMS', 'BEYOND', 'THE NIGHT', 'ETERNAL', 'LIGHT'
-    ]
+    trackDur: 174,
+    timedLyrics: [
+      [0, 7.5, 'FLOATING IN THE NEON LIGHT'],
+      [7.5, 7.5, 'CITY STREETS BELOW TONIGHT'],
+      [15, 7.5, 'ANTI-GRAVITY TAKES CONTROL'],
+      [22.5, 7.5, 'CYBER WAVES INSIDE MY SOUL'],
+      [30, 7.5, 'CRUISING THROUGH THE GLOWING GRID'],
+      [37.5, 7.5, 'HIGHER THAN WE EVER DID'],
+      [45, 7.5, 'DRIFT AWAY ON NEON STREAMS'],
+      [52.5, 7.5, 'LIVING IN FUTURISTIC DREAMS'],
+      [60, 5, 'WEIGHTLESS GLIDE INTO THE DARK'],
+      [65, 10, 'ELECTRIC SKY, A GLOWING SPARK'],
+      ...E(75, 60, [
+        'FLOATING IN THE NEON LIGHT',
+        'CITY STREETS BELOW TONIGHT',
+        'ANTI-GRAVITY TAKES CONTROL',
+        'CYBER WAVES INSIDE MY SOUL',
+        'DRIFT AWAY ON NEON STREAMS',
+        'LIVING IN FUTURISTIC DREAMS'
+      ]),
+      ...E(135, 39, [
+        'LOST IN SPACE, WE FLOAT AWAY',
+        'BEYOND THE NIGHT, INTO THE DAY',
+        'DRIFT AWAY ON NEON STREAMS',
+        'LIVING IN FUTURISTIC DREAMS',
+        'FADE INTO THE STARRY NIGHT',
+        'ANTI-GRAVITY, ETERNAL LIGHT'
+      ])
+    ],
+    lyrics: []
   },
 
   // =========================================================================
@@ -544,3 +693,12 @@ export const TRACKS = [
     ]
   }
 ];
+
+// Auto-populate unique 3D atlas lyric chunks for tracks with timestamped lyrics
+for (const tr of TRACKS) {
+  if (tr.timedLyrics) {
+    const s = new Set();
+    for (const e of tr.timedLyrics) for (const c of splitLyricChunks(e[2])) s.add(c);
+    tr.lyrics = [...s];
+  }
+}

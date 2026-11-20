@@ -95,7 +95,7 @@ export function createBillboardAtlas(gl) {
 // Bake all unique karaoke words for a track into one GPU texture atlas
 export function createLyricAtlas(gl, words, accentHex) {
   const unique = [...new Set(words)];
-  const cols = 4;
+  const cols = unique.length > 32 ? 8 : 4;
   const rows = Math.max(4, Math.ceil(unique.length / cols));
   const cellW = 256;
   const cellH = 96;
@@ -120,7 +120,7 @@ export function createLyricAtlas(gl, words, accentHex) {
     // R = crisp wireframe outline, B = offset drop-shadow, G = solid karaoke sweep fill!
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const fontSize = word.length > 9 ? 34 : word.length > 6 ? 42 : 50;
+    const fontSize = word.length > 12 ? 25 : word.length > 9 ? 31 : word.length > 6 ? 39 : 48;
     ctx.font = `italic 900 ${fontSize}px Eurostile, Bahnschrift, Impact, sans-serif`;
     ctx.lineJoin = 'round';
 

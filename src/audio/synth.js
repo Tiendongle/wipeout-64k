@@ -15,7 +15,7 @@
 //                       rimshots/gated snare, articulated 3-part harmonized pop-retrowave vocals
 //                       (1/8d delay) + velvety 80s synth-sax turnaround fills.
 
-import { TRACKS } from './tracks.js';
+import { TRACKS, splitLyricChunks } from './tracks.js';
 
 function midiToFreq(m) {
   return 440 * Math.pow(2, (m - 69) / 12);
@@ -188,6 +188,10 @@ export class SynthEngine {
     this._sectionRoll = 0;
     this._sectionDrop = 0;
     this._lyricIndex = 0;
+    this._tLyricIdx = 0;
+    this._activeLyricEnd = -1;
+    this._lastElapsed = 0;
+    this._lyricQueue = [];
 
     this.onLyric = null;
     this.onStep = null;
@@ -408,6 +412,7 @@ export class SynthEngine {
 
   _getTrackTotalBars(tr) {
     if (tr.sec) return tr.sec.length;
+    if (tr.trackDur) return Math.ceil(tr.trackDur / ((60 / tr.bpm) * 4));
     let total = 0;
     for (const s of tr.sections) total += s.bars;
     return total;
@@ -502,6 +507,11 @@ export class SynthEngine {
     this._offline = false;
     this.step = 0;
     this._lyricIndex = 0;
+    this._tLyricIdx = 0;
+    this._activeLyricEnd = -1;
+    this._lastElapsed = 0;
+    this._lyricQueue.length = 0;
+    if (this.track.timedLyrics) this.telemetry.lyric = '—';
     this._evHead = 0;
     this._evTail = 0;
     this._lastPadStep = -99;
@@ -533,6 +543,7 @@ export class SynthEngine {
     this.playing = false;
     this._evHead = 0;
     this._evTail = 0;
+    this._lyricQueue.length = 0;
     if (this.timerId) {
       clearInterval(this.timerId);
       this.timerId = null;
@@ -796,7 +807,7 @@ export class SynthEngine {
       this._pushEv(t, 2);
     }
 
-    if (!this._offline && s16 % 8 === 0 && tr.lyrics.length > 0) {
+    if (!this._offline && !tr.timedLyrics && s16 % 8 === 0 && tr.lyrics.length > 0) {
       const word = tr.lyrics[this._lyricIndex % tr.lyrics.length];
       this._lyricIndex++;
       this._pushEv(t, 3, word, sec.energy);
@@ -1773,8 +1784,42 @@ export class SynthEngine {
     const t = this.ctx.currentTime;
     this._drainEvents(t);
     const beatDur = 60 / this.track.bpm;
-    const elapsed = Math.max(0, t - this.startTime);
-    tel.beatPhase = (elapsed / beatDur) % 1;
+    const rawElapsed = Math.max(0, t - this.startTime);
+    const tr = this.track;
+    if (tr.timedLyrics) {
+      const elapsed = (this.loopTrack && tr.trackDur) ? (rawElapsed % tr.trackDur) : rawElapsed;
+      if (elapsed < this._lastElapsed) {
+        this._tLyricIdx = 0;
+        this._activeLyricEnd = -1;
+        this._lyricQueue.length = 0;
+        tel.lyric = '—';
+      }
+      this._lastElapsed = elapsed;
+      const tl = tr.timedLyrics;
+      while (this._tLyricIdx < tl.length && elapsed >= tl[this._tLyricIdx][0]) {
+        const entry = tl[this._tLyricIdx++];
+        if (elapsed < entry[0] + entry[1]) {
+          tel.lyric = entry[2];
+          tel.lyricId++;
+          this._activeLyricEnd = entry[0] + entry[1];
+          this._lyricQueue.length = 0;
+          const chunks = splitLyricChunks(entry[2]);
+          const gap = Math.min(2.1, entry[1] / chunks.length);
+          for (let k = 0; k < chunks.length; k++) {
+            this._lyricQueue.push({ t: entry[0] + k * gap, w: chunks[k] });
+          }
+        }
+      }
+      while (this._lyricQueue.length && elapsed >= this._lyricQueue[0].t) {
+        const item = this._lyricQueue.shift();
+        if (this.onLyric) this.onLyric(item.w, tel.energy);
+      }
+      if (this._activeLyricEnd > 0 && elapsed >= this._activeLyricEnd) {
+        tel.lyric = '—';
+        this._activeLyricEnd = -1;
+      }
+    }
+    tel.beatPhase = (rawElapsed / beatDur) % 1;
 
     const dtBeat = Math.max(0, t - this._lastBeatTime);
     const dtKick = Math.max(0, t - this._lastKickTime);
