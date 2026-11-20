@@ -51,37 +51,36 @@ export class Ship {
     // 1. Crisp elastic surge physics with sustained-surge camera catch-up!
     // When high speed / far surge is sustained, the camera guns its chase velocity to reel
     // the craft right back into tight, immersive hero framing behind the twin plasma exhausts!
-    const sustainedHigh = this.relS > 17.0 || (music.energy > 0.72 && (music.isDrop || music.energy > 0.82));
+    const sustainedHigh = this.relS > 17.5 || (music.energy > 0.72 && (music.isDrop || music.energy > 0.82));
     if (sustainedHigh) {
-      this.surgeHold = Math.min(2.6, this.surgeHold + dt * (this.relS > 22.0 ? 1.45 : 0.85));
+      this.surgeHold = Math.min(4.2, this.surgeHold + dt);
     } else {
-      this.surgeHold = Math.max(0.0, this.surgeHold - dt * 1.15);
+      this.surgeHold = Math.max(0.0, this.surgeHold - dt * 1.1);
     }
-    // Smoothly engage camera catch-up after ~0.45s of sustained surge
-    const targetCatch = Math.max(0.0, Math.min(1.0, (this.surgeHold - 0.45) / 1.15));
-    this.catchUp += (targetCatch - this.catchUp) * Math.min(1, dt * 3.2);
+    // Delay camera catch-up (~1.45s) so the craft pulls away dramatically first, then smoothly reels back in!
+    const targetCatch = Math.max(0.0, Math.min(1.0, (this.surgeHold - 1.45) / 1.85));
+    this.catchUp += (targetCatch - this.catchUp) * Math.min(1, dt * 2.0);
 
-    // Rest distance pulls right back into immersive close range (~12.2u) once camera catches up!
-    const rawRest = 11.2 + music.energy * 5.2 + (music.isDrop ? 3.2 : 0.0);
-    const restS = rawRest + (12.2 - rawRest) * (this.catchUp * 0.82);
+    // Rest distance pulls right back into immersive close range (~12.4u) once camera catches up!
+    const rawRest = 11.4 + music.energy * 5.6 + (music.isDrop ? 3.8 : 0.0);
+    const restS = rawRest + (12.4 - rawRest) * (this.catchUp * 0.80);
 
-    // Discrete kick-drum thrust impulse — tapered when ship is already far ahead so rapid
-    // 150-160 BPM beats punch crisply without pinning the craft far away forever!
+    // Discrete kick-drum thrust impulse — allows juicy pull-away first, then eases smoothly as camera catches up!
     if (music.kickId !== this._lastKickId) {
       this._lastKickId = music.kickId;
-      const distDamp = Math.max(0.26, 1.0 - Math.max(0.0, this.relS - 13.5) / 20.0);
-      const catchDamp = 1.0 - this.catchUp * 0.42;
-      const kickPush = (16.0 + music.energy * 22.0 + (music.bassEnergy || 0) * 12.0 + (music.isDrop ? 10.0 : 0.0)) * distDamp * catchDamp;
-      this.relVel = Math.min(82.0, this.relVel + kickPush);
+      const distDamp = Math.max(0.28, 1.0 - Math.max(0.0, this.relS - 16.0) / 24.0);
+      const catchDamp = 1.0 - this.catchUp * 0.44;
+      const kickPush = (17.0 + music.energy * 23.0 + (music.bassEnergy || 0) * 12.0 + (music.isDrop ? 11.0 : 0.0)) * distDamp * catchDamp;
+      this.relVel = Math.min(88.0, this.relVel + kickPush);
       this.thrust = Math.min(1.90, Math.max(this.thrust, 0.75 + music.energy * 0.75 + (music.subBassPunch || 0) * 0.35));
     }
 
-    // Big DROP impact: dramatic initial afterburner launch, then camera accelerates to catch up!
+    // Big DROP impact: dramatic initial afterburner launch, then camera delays ~1.5s before accelerating to catch up!
     if (music.dropId !== this._lastDropId) {
       this._lastDropId = music.dropId;
-      this.surgeHold = 0.0; // allow fresh dramatic separation before camera catches up!
-      this.catchUp *= 0.25;
-      this.relVel = Math.max(this.relVel, 108.0);
+      this.surgeHold = 0.0;
+      this.catchUp *= 0.15;
+      this.relVel = Math.max(this.relVel, 118.0);
       this.thrust = 2.0;
     }
 
@@ -89,19 +88,19 @@ export class Ship {
     const baseThrust = 0.16 + music.energy * 0.36 + (music.isRoll ? 0.35 : 0.0) + this.catchUp * 0.28;
     this.thrust += (baseThrust - this.thrust) * Math.min(1, dt * 6.5);
 
-    // Elastic camera catch-up spring: tightens dramatically as catchUp engages so camera reels ship back!
-    const springK = 5.8 + this.catchUp * 11.5;
-    const dragC = 4.0 + this.catchUp * 3.4;
+    // Elastic camera catch-up spring: tightens smoothly after the delayed surge hold!
+    const springK = 5.4 + this.catchUp * 11.0;
+    const dragC = 3.8 + this.catchUp * 3.4;
     const accel = -springK * (this.relS - restS) - dragC * this.relVel;
     this.relVel += accel * dt;
     this.relS += this.relVel * dt;
 
-    // Clamp to Wipeout close-to-far range (10 = tight hero view, 48 = peak drop separation)
+    // Clamp to Wipeout close-to-far range (10 = tight hero view, 54 = peak drop separation)
     if (this.relS < 10.0) {
       this.relS = 10.0;
       if (this.relVel < 0) this.relVel *= -0.15;
-    } else if (this.relS > 48.0) {
-      this.relS = 48.0;
+    } else if (this.relS > 54.0) {
+      this.relS = 54.0;
       if (this.relVel > 0) this.relVel *= 0.1;
     }
 
