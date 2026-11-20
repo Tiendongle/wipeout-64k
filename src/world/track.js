@@ -85,7 +85,7 @@ export class Track {
     return false;
   }
 
-  // True persistent world-space track surface height, tangent slope (dy/ds), and solid-road flag
+  // True persistent world-space track surface height, tangent slope (dy/ds), solid-road & launch-ramp flags
   getSurfaceAt(worldS, out) {
     const fSeg = worldS / SEG_LEN;
     const i0 = Math.floor(fSeg);
@@ -95,6 +95,7 @@ export class Track {
     out.y = s0.y + (s1.y - s0.y) * frac;
     out.slope = (s1.y - s0.y) / SEG_LEN;
     out.hasRoad = (s0.gap || s1.gap) ? 0 : 1;
+    out.isRamp = (s0.ramp || s1.ramp) ? 1 : 0;
     return out;
   }
 
@@ -121,10 +122,10 @@ export class Track {
     for (let i = 0; i < this.jumps.length; i++) {
       if (Math.abs(this.jumps[i].startSeg - startSeg) < 90) return null;
     }
-    // Realistic Wipeout skyway gaps tuned for genuine Newtonian ballistic arcs!
-    const gapSegs = isMega ? 48 : 36; // 144u chasm for BIG DROP, 108u chasm for chorus jump
+    // Crisp Wipeout skyway gaps tuned for heavy, weighty gravity (g = 175)!
+    const gapSegs = isMega ? 30 : 22; // 90u chasm for BIG DROP, 66u chasm for chorus jump
     const endSeg = startSeg + gapSegs;
-    const dropY = isMega ? -17.0 : -12.0;
+    const dropY = isMega ? -16.0 : -12.0;
     const launchS = startSeg * SEG_LEN;
     const landS = endSeg * SEG_LEN;
     const jump = {
@@ -197,12 +198,14 @@ export class Track {
       Math.cos(id * 0.095) * (amp * 0.22) + this._yOffset;
     let y = prev.y + (rawY - prev.y) * 0.22;
     let gap = 0;
+    let ramp = 0;
 
     if (activeJump) {
       if (id <= activeJump.startSeg) {
-        // Real speed-responsive ski-jump launch ramp (natural ballistic launch proportional to speed^2!)
+        // Real speed-responsive ski-jump launch ramp (natural ballistic launch under heavy gravity!)
+        ramp = 1;
         const u = (id - (activeJump.startSeg - activeJump.rampLen)) / activeJump.rampLen;
-        const lift = u * u * (activeJump.isMega ? 3.8 : 2.1);
+        const lift = u * u * (activeJump.isMega ? 4.8 : 3.2);
         y += lift;
         if (id === activeJump.startSeg) activeJump.launchY = y;
       } else if (id < activeJump.endSeg) {
@@ -218,14 +221,14 @@ export class Track {
         }
         y = activeJump.launchY + activeJump.dropY;
       } else {
-        // Smooth flat-to-rolling 12-segment landing runway so the deck never juts up into the gliding craft/camera!
+        // Smooth flat-to-rolling 12-segment landing runway so the deck never juts up into the craft/camera!
         const landY = activeJump.launchY + activeJump.dropY;
         const blend = (id - activeJump.endSeg) / 12.0;
         y = landY + (y - landY) * (blend * blend);
       }
     }
 
-    d = { curv, y, gap };
+    d = { curv, y, gap, ramp };
     this._segData.set(id, d);
     return d;
   }
@@ -397,12 +400,12 @@ export class Track {
     const lookFrame = this.sampleAt(this.dist + 28.0, this._lookSample);
     const camLat = this.camShakeX + this.camDrift * 0.45;
     const camUpOff = 4.4 + this.camShakeY + this.camDrift * 0.18;
-    const shipAir = Math.max(0, this._targetShipClearance - 0.88);
-    // Ride slightly ABOVE the airborne craft so twin thruster trails always stream cleanly below/behind!
-    const targetCamLift = shipAir * 1.18;
-    const targetLookLift = shipAir * 0.88;
-    this._camLift += (targetCamLift - this._camLift) * Math.min(1, this._dt * (targetCamLift > this._camLift ? 12.0 : 6.0));
-    this._lookLift += (targetLookLift - this._lookLift) * Math.min(1, this._dt * (targetLookLift > this._lookLift ? 12.0 : 6.0));
+    const shipAir = Math.max(0, this._targetShipClearance - 0.74);
+    // Keep chase camera planted with the craft (no lingering high float after landing!)
+    const targetCamLift = shipAir * 0.56;
+    const targetLookLift = shipAir * 0.72;
+    this._camLift += (targetCamLift - this._camLift) * Math.min(1, this._dt * (targetCamLift > this._camLift ? 14.0 : 11.5));
+    this._lookLift += (targetLookLift - this._lookLift) * Math.min(1, this._dt * (targetLookLift > this._lookLift ? 14.0 : 11.5));
     this.camPos.x = camFrame.x + camFrame.ux * camUpOff + camFrame.rx * camLat;
     this.camPos.y = camFrame.y + camFrame.uy * camUpOff + camFrame.ry * camLat + this._camLift;
     this.camPos.z = camFrame.z + camFrame.uz * camUpOff + camFrame.rz * camLat;
