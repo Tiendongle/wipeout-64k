@@ -70,7 +70,7 @@ export class Renderer {
       beam: loc(this.beamProg, ['uView', 'uProj', 'uBeamColor', 'uIntensity', 'uTime', 'uMaxDepth']),
       bloomExt: loc(this.bloomExtProg, ['uScene']),
       blur: loc(this.blurProg, ['uTex', 'uDir']),
-      dof: loc(this.dofProg, ['uScene', 'uDepth', 'uBloom', 'uTexel', 'uFocusDepth', 'uDofStrength', 'uBloomStrength', 'uSpeedBlur', 'uRasterMode', 'uStepPulse', 'uTime', 'uAccent'])
+      dof: loc(this.dofProg, ['uScene', 'uDepth', 'uBloom', 'uTexel', 'uFocusDepth', 'uDofStrength', 'uBloomStrength', 'uSpeedBlur', 'uBlurCenter', 'uShipUv', 'uRasterMode', 'uStepPulse'])
     };
     this._tanHalfFov = Math.tan(FOV_RAD * 0.5);
     this._padData = new Float32Array(32);
@@ -152,9 +152,13 @@ export class Renderer {
     // Reusable sample scratch
     this._tmpSample = {};
 
-    // Track 3 onStep pulse decay state & smoothed speed-surge filter
+    // Track 3 onStep pulse decay state & ship-tracked radial speed-blur state
     this.stepPulse = 0;
     this._speedFilter = 0;
+    this._blurCx = 0.5;
+    this._blurCy = 0.5;
+    this._shipU = 0.5;
+    this._shipV = 0.48;
 
     this.resize();
   }
@@ -579,10 +583,34 @@ export class Renderer {
       (music.mode === 'retrowave' ? (music.subBassEnvelope || 0) * 0.16 : 0);
     gl.uniform1f(U.dof.uBloomStrength, bloomAmt);
     gl.uniform1f(U.dof.uSpeedBlur, this._speedFilter);
+    // Project live ship UV & forward heading vanishing point for ship-tracked radial blur A/B test
+    const vm = this.viewMat, pm = this.projMat;
+    const sp = ship.pos, sf = ship.forward, sr = ship.right;
+    const sVx = vm[0] * sp[0] + vm[4] * sp[1] + vm[8] * sp[2] + vm[12];
+    const sVy = vm[1] * sp[0] + vm[5] * sp[1] + vm[9] * sp[2] + vm[13];
+    const sCw = Math.max(0.5, -(vm[2] * sp[0] + vm[6] * sp[1] + vm[10] * sp[2] + vm[14]));
+    const rawSU = Math.max(0.18, Math.min(0.82, 0.5 + 0.5 * (pm[0] * sVx) / sCw));
+    const rawSV = Math.max(0.18, Math.min(0.82, 0.5 + 0.5 * (pm[5] * sVy) / sCw));
+
+    const ax = sp[0] + sf[0] * 38.0 + sr[0] * (ship.latVel * 0.65);
+    const ay = sp[1] + sf[1] * 38.0 + ship.vy * 0.28;
+    const az = sp[2] + sf[2] * 38.0 + sr[2] * (ship.latVel * 0.65);
+    const aVx = vm[0] * ax + vm[4] * ay + vm[8] * az + vm[12];
+    const aVy = vm[1] * ax + vm[5] * ay + vm[9] * az + vm[13];
+    const aCw = Math.max(0.5, -(vm[2] * ax + vm[6] * ay + vm[10] * az + vm[14]));
+    const rawAU = Math.max(0.22, Math.min(0.78, 0.5 + 0.5 * (pm[0] * aVx) / aCw));
+    const rawAV = Math.max(0.24, Math.min(0.76, 0.5 + 0.5 * (pm[5] * aVy) / aCw));
+
+    const trackAlpha = Math.min(1, dt * 11.0);
+    this._shipU += (rawSU - this._shipU) * trackAlpha;
+    this._shipV += (rawSV - this._shipV) * trackAlpha;
+    this._blurCx += ((rawAU * 0.68 + rawSU * 0.32) - this._blurCx) * trackAlpha;
+    this._blurCy += ((rawAV * 0.68 + rawSV * 0.32) - this._blurCy) * trackAlpha;
+
+    gl.uniform2f(U.dof.uBlurCenter, this._blurCx, this._blurCy);
+    gl.uniform2f(U.dof.uShipUv, this._shipU, this._shipV);
     gl.uniform1f(U.dof.uRasterMode, music.rasterMode || 0);
     gl.uniform1f(U.dof.uStepPulse, this.stepPulse);
-    gl.uniform1f(U.dof.uTime, nowSec);
-    gl.uniform3fv(U.dof.uAccent, beamCol);
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }

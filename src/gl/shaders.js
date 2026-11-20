@@ -478,10 +478,10 @@ uniform float uFocusDepth;
 uniform float uDofStrength;
 uniform float uBloomStrength;
 uniform float uSpeedBlur;
+uniform vec2 uBlurCenter;
+uniform vec2 uShipUv;
 uniform float uRasterMode;
 uniform float uStepPulse;
-uniform float uTime;
-uniform vec3 uAccent;
 
 out vec4 outColor;
 
@@ -524,50 +524,55 @@ void main() {
 
   vec3 col = acc / wSum;
 
-  // Dynamic Phantom-Class Speed Filter: radial velocity blur + peripheral RGB dispersion + slipstream lines!
-  vec2 rad = vUv - vec2(0.5, 0.52);
-  float rDist = length(rad * vec2(1.0, 0.86));
-  float edge = smoothstep(0.15, 0.76, rDist);
+  // Ship-Tracked Long-Streak Radial Zoom Blur + Luminous Neon Light-Streaks
+  vec2 rad = vUv - uBlurCenter;
+  float rDist = length(rad * vec2(1.0, 0.84));
+  float edge = smoothstep(0.08, 0.62, rDist);
+  vec3 bloomStreak = vec3(0.0);
   if (uSpeedBlur > 0.015 && edge > 0.005) {
-    float sAmt = uSpeedBlur * edge;
-    vec2 stepUv = rad * (0.024 * sAmt);
-    vec3 rCol =
-      texture(uScene, clamp(vUv - stepUv * 0.55, vec2(0.001), vec2(0.999))).rgb * 0.34 +
-      texture(uScene, clamp(vUv - stepUv * 1.25, vec2(0.001), vec2(0.999))).rgb * 0.28 +
-      texture(uScene, clamp(vUv - stepUv * 2.15, vec2(0.001), vec2(0.999))).rgb * 0.22 +
-      texture(uScene, clamp(vUv - stepUv * 3.20, vec2(0.001), vec2(0.999))).rgb * 0.16;
-    col = mix(col, rCol, clamp(0.54 * sAmt, 0.0, 0.68));
+    float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    float shipDist = length((vUv - uShipUv) * vec2(1.35, 1.10));
+    float isShip = (1.0 - smoothstep(0.08, 0.21, shipDist)) * (1.0 - smoothstep(0.012, 0.032, abs(centerD - uFocusDepth)));
+    float radialMask = edge * (1.0 - isShip);
+    float surgeAmt = smoothstep(0.06, 1.10, uSpeedBlur);
+    vec2 vel = rad * (0.34 * surgeAmt * radialMask);
+    if (dot(vel, vel) > 1e-7) {
+      vec3 mAcc = col * 0.55;
+      float mW = 0.55;
+      for (int i = 0; i < 14; i++) {
+        float t = (float(i) + ign) / 14.0;
+        vec2 suv = clamp(vUv - vel * t, vec2(0.001), vec2(0.999));
+        float w = pow(1.0 - t, 0.68);
+        mAcc += texture(uScene, suv).rgb * w;
+        mW += w;
+      }
+      col = mix(col, mAcc / mW, clamp(radialMask * (0.42 + 0.56 * surgeAmt), 0.0, 0.96));
 
-    // Subtle peripheral RGB chromatic dispersion on high-G surges
-    float ca = 0.0095 * sAmt * edge;
-    float rCh = texture(uScene, clamp(vUv + rad * ca, vec2(0.001), vec2(0.999))).r;
-    float bCh = texture(uScene, clamp(vUv - rad * ca, vec2(0.001), vec2(0.999))).b;
-    float caMix = clamp(0.42 * sAmt, 0.0, 0.45);
-    col.r = mix(col.r, rCh, caMix);
-    col.b = mix(col.b, bCh, caMix);
+      // Peripheral radial chromatic dispersion (warm/cool edge streak fringe)
+      vec2 caOff = vel * 0.14;
+      float rCh = texture(uScene, clamp(vUv + caOff, vec2(0.001), vec2(0.999))).r;
+      float bCh = texture(uScene, clamp(vUv - caOff, vec2(0.001), vec2(0.999))).b;
+      float caMix = clamp(0.38 * surgeAmt * radialMask, 0.0, 0.40);
+      col.r = mix(col.r, rCh, caMix);
+      col.b = mix(col.b, bCh, caMix);
 
-    // Procedural radial slipstream speed-lines whipping past outer viewport edges
-    float lineVis = smoothstep(0.22, 1.05, uSpeedBlur) * smoothstep(0.26, 0.78, rDist);
-    if (lineVis > 0.01) {
-      float ang = atan(rad.y, rad.x);
-      float rayA = floor(ang * 22.0);
-      float hA = fract(sin(rayA * 127.1 + 311.7) * 43758.5453);
-      float thinA = smoothstep(0.42, 0.02, abs(fract(ang * 22.0) - 0.5));
-      float streakA = smoothstep(0.76, 0.99, fract(rDist * 2.2 - uTime * (4.8 + uSpeedBlur * 6.5) + hA * 17.0));
-
-      float rayB = floor(ang * 38.0 + 7.3);
-      float hB = fract(sin(rayB * 269.5 + 183.3) * 43758.5453);
-      float thinB = smoothstep(0.36, 0.02, abs(fract(ang * 38.0 + 7.3) - 0.5));
-      float streakB = smoothstep(0.82, 0.99, fract(rDist * 3.1 - uTime * (6.2 + uSpeedBlur * 8.2) + hB * 23.0));
-
-      float rays = (thinA * streakA * step(0.48, hA) + thinB * streakB * step(0.58, hB) * 0.75) * lineVis;
-      vec3 streakCol = mix(vec3(0.96, 0.99, 1.0), uAccent, 0.46);
-      col += streakCol * rays * (0.28 + 0.14 * uSpeedBlur);
+      // Luminous radial neon light-streaks pulled outward from quarter-res bloom buffer
+      vec2 bVel = rad * (0.48 * surgeAmt * smoothstep(0.05, 0.56, rDist));
+      vec3 bAcc = vec3(0.0);
+      float bW = 0.0;
+      for (int i = 0; i < 8; i++) {
+        float t = (float(i) + ign) * 0.125;
+        vec2 buv = clamp(vUv - bVel * t, vec2(0.001), vec2(0.999));
+        float w = pow(1.0 - t, 1.05);
+        bAcc += texture(uBloom, buv).rgb * w;
+        bW += w;
+      }
+      bloomStreak = (bAcc / max(bW, 0.001)) * (0.68 * surgeAmt * radialMask);
     }
   }
 
-  // Rich neon anamorphic bloom composite (energy-preserving soft knee prevents milky washout)
-  vec3 bloom = texture(uBloom, vUv).rgb;
+  // Rich neon anamorphic bloom + radial light-streaks (energy-preserving soft knee prevents milky washout)
+  vec3 bloom = texture(uBloom, vUv).rgb + bloomStreak;
   col += bloom * uBloomStrength * (1.06 - min(col, vec3(1.0)) * 0.18);
 
   // Track 3 (Tracker Protocol) crisp retro demoscene CRT raster scanlines synced to onStep!
