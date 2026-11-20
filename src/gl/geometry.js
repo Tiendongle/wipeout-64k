@@ -320,16 +320,18 @@ export function writeBeamGeometry(track, ship, out) {
       const t = i / BEAM_STEPS;
       const s = ship.worldS - engineBack - t * len;
       const fr = track.sampleAt(s, _bTmp);
-      // Trace the ship's recorded world-space flight path, clamped strictly ABOVE solid road so beams NEVER clip the map!
+      // C1-continuous flight-path wake with smooth soft-max floor (zero hard cliffs, zero road clipping!)
       const wakeRelY = ship.sampleWakeWorldY(s) - track.camTrackY + engineUp;
       const roadFloorY = fr.y + fr.ry * lat + fr.uy * (0.48 + engineUp);
+      const roadW = track.getRoadWeight(s);
 
       const shipWeight = (1 - t) * (1 - t) * Math.sqrt(1 - t);
       let px = fr.x + fr.rx * lat + fr.ux * baseH;
       let py = wakeRelY + fr.ry * lat;
-      if (!track.isInGap(s) && py < roadFloorY) py = roadFloorY;
-      // Only prevent tail from arcing over the camera lens when actually near the camera plane!
-      if (fr.z > -7.0 && py > track.camPos.y - 0.35) py = track.camPos.y - 0.35;
+      if (roadW > 0.001) {
+        const diff = roadFloorY - py;
+        py += 0.5 * (diff + Math.sqrt(diff * diff + 0.12)) * roadW;
+      }
       let pz = fr.z + fr.rz * lat + fr.uz * baseH;
 
       if (i === 0) {
@@ -340,7 +342,10 @@ export function writeBeamGeometry(track, ship, out) {
         const dBack = engineBack + t * len;
         const sx = ship.pos[0] + ship.right[0] * engineLat + ship.up[0] * engineUp - ship.forward[0] * dBack;
         let sy = ship.pos[1] + ship.right[1] * engineLat + ship.up[1] * engineUp - ship.forward[1] * dBack;
-        if (!track.isInGap(s) && sy < roadFloorY) sy = roadFloorY;
+        if (roadW > 0.001) {
+          const sDiff = roadFloorY - sy;
+          sy += 0.5 * (sDiff + Math.sqrt(sDiff * sDiff + 0.12)) * roadW;
+        }
         const sz = ship.pos[2] + ship.right[2] * engineLat + ship.up[2] * engineUp - ship.forward[2] * dBack;
         const w = shipWeight * 0.5;
         px += (sx - px) * w;

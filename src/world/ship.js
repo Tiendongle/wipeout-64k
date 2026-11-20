@@ -61,16 +61,16 @@ export class Ship {
   }
 
   sampleWakeWorldY(s) {
-    if (this._wakeCount < 2) return this.worldY;
+    if (this._wakeCount < 1) return this.worldY;
+    // Anchor directly to live (this.worldS, this.worldY) so i=0 -> i=1 has ZERO seam or lag!
+    let prevS = this.worldS;
+    let prevY = this.worldY;
+    if (s >= prevS) return prevY;
     const cap = this._wakeCap;
     let idx = (this._wakeHead - 1 + cap) % cap;
-    let prevS = this._wakeS[idx];
-    let prevY = this._wakeY[idx];
-    if (s >= prevS) return prevY;
-    for (let k = 1; k < this._wakeCount; k++) {
-      const nIdx = (idx - 1 + cap) % cap;
-      const curS = this._wakeS[nIdx];
-      const curY = this._wakeY[nIdx];
+    for (let k = 0; k < this._wakeCount; k++) {
+      const curS = this._wakeS[idx];
+      const curY = this._wakeY[idx];
       if (s >= curS) {
         const span = Math.max(0.001, prevS - curS);
         const t = (s - curS) / span;
@@ -78,7 +78,7 @@ export class Ship {
       }
       prevS = curS;
       prevY = curY;
-      idx = nIdx;
+      idx = (idx - 1 + cap) % cap;
     }
     return prevY;
   }

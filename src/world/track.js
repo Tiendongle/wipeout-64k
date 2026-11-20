@@ -85,6 +85,22 @@ export class Track {
     return false;
   }
 
+  // Smooth C1 road presence weight (1 = solid road, 0 = inside chasm, smooth 6u transitions at lips!)
+  getRoadWeight(worldS) {
+    let w = 1.0;
+    for (let i = 0; i < this.jumps.length; i++) {
+      const j = this.jumps[i];
+      if (worldS > j.launchS - 6.0 && worldS < j.landS + 6.0) {
+        const enter = Math.max(0, Math.min(1, (j.launchS - worldS) / 6.0));
+        const exit = Math.max(0, Math.min(1, (worldS - j.landS) / 6.0));
+        const t = Math.max(enter, exit);
+        const sm = t * t * (3.0 - 2.0 * t);
+        if (sm < w) w = sm;
+      }
+    }
+    return w;
+  }
+
   // True persistent world-space track surface height, tangent slope (dy/ds), solid-road & launch-ramp flags
   getSurfaceAt(worldS, out) {
     const fSeg = worldS / SEG_LEN;
