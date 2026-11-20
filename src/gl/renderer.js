@@ -64,7 +64,7 @@ export class Renderer {
     };
     this.u = {
       sky: loc(this.skyProg, ['uAspect', 'uTanHalfFov', 'uWorldYaw', 'uCamRight', 'uCamUp', 'uCamForward', 'uBeat', 'uTime']),
-      track: loc(this.trackProg, ['uView', 'uProj', 'uBeat', 'uAccent', 'uMaxDepth', 'uShipPos', 'uStabFlash', 'uRasterMode', 'uStepPulse']),
+      track: loc(this.trackProg, ['uView', 'uProj', 'uBeat', 'uAccent', 'uMaxDepth', 'uShipPos', 'uStabFlash', 'uRasterMode', 'uStepPulse', 'uTime', 'uPads[0]']),
       quad: loc(this.quadProg, ['uView', 'uProj', 'uMaxDepth', 'uAlphaCut', 'uTex']),
       ship: loc(this.shipProg, ['uModel', 'uView', 'uProj', 'uCamPos', 'uBeamColor', 'uThrust', 'uMaxDepth']),
       beam: loc(this.beamProg, ['uView', 'uProj', 'uBeamColor', 'uIntensity', 'uTime', 'uMaxDepth']),
@@ -73,6 +73,7 @@ export class Renderer {
       dof: loc(this.dofProg, ['uScene', 'uDepth', 'uBloom', 'uTexel', 'uFocusDepth', 'uDofStrength', 'uBloomStrength', 'uSpeedBlur', 'uRasterMode', 'uStepPulse'])
     };
     this._tanHalfFov = Math.tan(FOV_RAD * 0.5);
+    this._padData = new Float32Array(32);
 
     // Empty VAO for fullscreen triangle passes
     this.emptyVao = gl.createVertexArray();
@@ -131,9 +132,12 @@ export class Renderer {
     this.billboardAtlas = createBillboardAtlas(gl);
     this.lyricAtlas = null;
 
-    // Active racing 3D lyric words flying along the track
+    // Active racing 3D lyric words & snare/stab-synced billboards flying along the track
     this.activeLyrics = [];
     this._lyricLaneToggle = 0;
+    this.billboards = [];
+    this._bbSideToggle = 0;
+    this._bbDesignIdx = 0;
 
     // Matrices
     this.projMat = new Float32Array(16);
@@ -238,37 +242,55 @@ export class Renderer {
     return o;
   }
 
-  _buildBillboards(track) {
-    const spacing = 36.0;
-    const minS = track.dist + 4.0;
-    const maxS = track.dist + AHEAD_SEGS * SEG_LEN - 12.0;
-    const firstIdx = Math.ceil(minS / spacing);
-    const lastIdx = Math.floor(maxS / spacing);
+  spawnBillboard(worldS, isGantry = 0) {
+    // Avoid overlapping two billboards on top of each other
+    for (let i = 0; i < this.billboards.length; i++) {
+      if (Math.abs(this.billboards[i].s - worldS) < 16.0) return;
+    }
+    const side = (this._bbSideToggle++ % 2 === 0) ? -1 : 1;
+    const designIdx = this._bbDesignIdx++ % this.billboardAtlas.count;
+    this.billboards.push({ s: worldS, gantry: isGantry ? 1 : 0, side, designIdx });
+    if (this.billboards.length > 26) this.billboards.shift();
+  }
 
-    const { cols, rows, count } = this.billboardAtlas;
+  _buildBillboards(track, ship, music) {
+    const minS = track.dist - 8.0;
+    const maxS = track.dist + AHEAD_SEGS * SEG_LEN - 12.0;
+    const { cols, rows } = this.billboardAtlas;
     let o = 0;
     const fr = this._tmpSample;
 
-    for (let idx = firstIdx; idx <= lastIdx; idx++) {
-      if (o + 36 > this.quadBuf.length) break;
-      const worldS = idx * spacing;
-      track.sampleAt(worldS, fr);
+    // Snare / backbeat / stab neon glow sync (distinct rhythmic channel from kick Speed Pads!)
+    const beatGlow = (music.snare || 0) * 0.62 + (music.stabPulse || 0) * 0.82 + (music.accentTrigger || 0) * 0.72;
 
-      const designIdx = ((idx % count) + count) % count;
-      const col = designIdx % cols;
-      const row = Math.floor(designIdx / cols);
+    for (let i = this.billboards.length - 1; i >= 0; i--) {
+      if (this.billboards[i].s < minS) this.billboards.splice(i, 1);
+    }
+
+    for (let i = 0; i < this.billboards.length; i++) {
+      const bb = this.billboards[i];
+      if (bb.s > maxS) continue;
+      if (o + 36 > this.quadBuf.length) break;
+      track.sampleAt(bb.s, fr);
+
+      const col = bb.designIdx % cols;
+      const row = Math.floor(bb.designIdx / cols);
       const u0 = col / cols, u1 = (col + 1) / cols;
       const v0 = row / rows, v1 = (row + 1) / rows;
 
-      if (idx % 5 === 0) {
+      // Bright pass-by surge right as the craft rockets past on the snare/stab beat!
+      const passGlow = Math.exp(-Math.abs(bb.s - ship.worldS) * 0.055) * 0.92;
+      const glow = (bb.gantry ? 0.14 : 0.08) + beatGlow + passGlow;
+
+      if (bb.gantry) {
         o = this._pushQuad(
           this.quadBuf, o,
           fr.x + fr.ux * 9.8, fr.y + fr.uy * 9.8, fr.z + fr.uz * 9.8,
           fr.rx, fr.ry, fr.rz, fr.ux, fr.uy, fr.uz,
-          9.6, 2.35, u0, v0, u1, v1, 0.12
+          9.6, 2.35, u0, v0, u1, v1, glow
         );
       } else {
-        const side = (idx % 2 === 0) ? -1 : 1;
+        const side = bb.side;
         const offsetOut = side * (TRACK_HALF_WIDTH + 4.4);
         const toe = side * 0.28;
         const ct = Math.cos(toe), st = Math.sin(toe);
@@ -279,7 +301,7 @@ export class Renderer {
           fr.z + fr.rz * offsetOut + fr.uz * 4.2,
           fr.rx * ct - fr.fx * st, fr.ry * ct - fr.fy * st, fr.rz * ct - fr.fz * st,
           fr.ux, fr.uy, fr.uz,
-          4.8, 2.4, u0, v0, u1, v1, 0.08
+          4.8, 2.4, u0, v0, u1, v1, glow
         );
       }
     }
@@ -391,13 +413,29 @@ export class Renderer {
     gl.uniform1f(U.track.uStabFlash, stabFlash);
     gl.uniform1f(U.track.uRasterMode, music.rasterMode || 0);
     gl.uniform1f(U.track.uStepPulse, this.stepPulse);
+    gl.uniform1f(U.track.uTime, nowSec);
+    // Pack up to 8 visible beat-synced speed pads into zero-alloc Float32Array uniform!
+    this._padData.fill(0);
+    let pCount = 0;
+    for (let i = 0; i < track.speedPads.length && pCount < 8; i++) {
+      const p = track.speedPads[i];
+      if (p.s >= track.dist - 12.0 && p.s <= track.dist + AHEAD_SEGS * SEG_LEN) {
+        const base = pCount * 4;
+        this._padData[base] = p.s;
+        this._padData[base + 1] = p.halfLen;
+        this._padData[base + 2] = p.flash;
+        this._padData[base + 3] = p.kind;
+        pCount++;
+      }
+    }
+    gl.uniform4fv(U.track['uPads[0]'], this._padData);
     gl.bindVertexArray(this.trackVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.trackVbo);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.trackBuf.subarray(0, trackVertCount * TRACK_FLOATS_PER_VERT));
     gl.drawArrays(gl.TRIANGLES, 0, trackVertCount);
 
-    // 1C. 3D Trackside Billboards
-    const bbVertCount = this._buildBillboards(track);
+    // 1C. 3D Snare/Stab-Synced Trackside Billboards & Arch Gantries
+    const bbVertCount = this._buildBillboards(track, ship, music);
     if (bbVertCount > 0) {
       gl.useProgram(this.quadProg);
       gl.uniformMatrix4fv(U.quad.uView, false, this.viewMat);

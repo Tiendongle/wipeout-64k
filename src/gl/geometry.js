@@ -223,6 +223,35 @@ export function writeTrackGeometry(track, out) {
   for (let i = 0; i < TOTAL_SEGS; i++) {
     const p0 = track.samples[i];
     const p1 = track.samples[i + 1];
+
+    // Disconnected track chasm: skip geometry inside gaps & draw crisp bridge end-caps at lips!
+    if (p0.gap || p1.gap) {
+      if (!p0.gap && p1.gap && o + 54 <= out.length) {
+        // Launch lip glowing edge face (front of disconnected ramp!)
+        const lx0 = p0.x - p0.rx * hw, ly0 = p0.y - p0.ry * hw, lz0 = p0.z - p0.rz * hw;
+        const rx0 = p0.x + p0.rx * hw, ry0 = p0.y + p0.ry * hw, rz0 = p0.z + p0.rz * hw;
+        const dH = 1.8;
+        putQuad(
+          lx0, ly0, lz0, rx0, ry0, rz0,
+          rx0 - p0.ux * dH, ry0 - p0.uy * dH, rz0 - p0.uz * dH,
+          lx0 - p0.ux * dH, ly0 - p0.uy * dH, lz0 - p0.uz * dH,
+          p0.fx, p0.fy, p0.fz, 0, p0.s, 1, p0.s, 1, p0.s, 0, p0.s, 2
+        );
+      } else if (p0.gap && !p1.gap && o + 54 <= out.length) {
+        // Landing deck glowing front face facing the airborne pilot across the chasm!
+        const lx1 = p1.x - p1.rx * hw, ly1 = p1.y - p1.ry * hw, lz1 = p1.z - p1.rz * hw;
+        const rx1 = p1.x + p1.rx * hw, ry1 = p1.y + p1.ry * hw, rz1 = p1.z + p1.rz * hw;
+        const dH = 2.4;
+        putQuad(
+          rx1, ry1, rz1, lx1, ly1, lz1,
+          lx1 - p1.ux * dH, ly1 - p1.uy * dH, lz1 - p1.uz * dH,
+          rx1 - p1.ux * dH, ry1 - p1.uy * dH, rz1 - p1.uz * dH,
+          -p1.fx, -p1.fy, -p1.fz, 0, p1.s, 1, p1.s, 1, p1.s, 0, p1.s, 2
+        );
+      }
+      continue;
+    }
+
     const s0 = p0.s, s1 = p1.s;
 
     // Road surface (-hw .. +hw) — zero allocations!
@@ -274,23 +303,26 @@ const _bPts = new Float32Array((BEAM_STEPS + 1) * 3);
 const _bRig = new Float32Array((BEAM_STEPS + 1) * 3);
 const _bUps = new Float32Array((BEAM_STEPS + 1) * 3);
 const _bTmp = {};
+const _bAir = { inAir: 0, airY: 0, airPitch: 0, isMega: 0 };
 
 export function writeBeamGeometry(track, ship, out) {
   let o = 0;
   const len = ship.beamLength;
-  const baseWidth = 0.52 + ship.thrust * 0.34;
+  const baseWidth = Math.min(0.95, 0.48 + ship.thrust * 0.24);
   const engineUp = 0.12;
   const engineBack = 2.38;
 
   for (let sIdx = 0; sIdx < 2; sIdx++) {
     const engineLat = (sIdx === 0 ? -0.58 : 0.58);
     const lat = ship.lat + engineLat;
-    const h = ship.hoverH + engineUp;
+    const baseH = ship.hoverH + engineUp;
 
     for (let i = 0; i <= BEAM_STEPS; i++) {
       const t = i / BEAM_STEPS;
       const s = ship.worldS - engineBack - t * len;
       const fr = track.sampleAt(s, _bTmp);
+      const air = track.getAirState(s, _bAir);
+      const h = baseH + air.airY;
 
       const shipWeight = (1 - t) * (1 - t) * Math.sqrt(1 - t);
       let px = fr.x + fr.rx * lat + fr.ux * h;

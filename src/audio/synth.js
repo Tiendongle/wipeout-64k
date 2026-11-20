@@ -120,11 +120,13 @@ export class SynthEngine {
     this.pulse15Wave = null;
 
     // Zero-allocation circular event queue (replaces per-step setTimeout storm!)
-    this._evCap = 128;
-    this._evQ = new Array(128);
-    for (let i = 0; i < 128; i++) this._evQ[i] = { t: 0, kind: 0, a: 0, b: 0, c: 0 };
+    this._evCap = 256;
+    this._evQ = new Array(256);
+    for (let i = 0; i < 256; i++) this._evQ[i] = { t: 0, kind: 0, a: 0, b: 0, c: 0 };
     this._evHead = 0;
     this._evTail = 0;
+    this._lastPadStep = -99;
+    this._lastBbStep = -99;
 
     this.trackIndex = 0;
     this.playing = false;
@@ -188,6 +190,9 @@ export class SynthEngine {
 
     this.onLyric = null;
     this.onStep = null;
+    this.onSpeedPad = null;
+    this.onBillboard = null;
+    this.onJump = null;
   }
 
   get track() {
@@ -412,6 +417,59 @@ export class SynthEngine {
       } else if (ev.kind === 7) {
         this.telemetry.leadFrequency = ev.a;
         this.telemetry.leadFreqNorm = ev.b;
+      } else if (ev.kind === 8) {
+        if (this.onSpeedPad) this.onSpeedPad(ev.a, ev.b, ev.c);
+      } else if (ev.kind === 9) {
+        if (this.onBillboard) this.onBillboard(ev.a, ev.b, ev.c);
+      } else if (ev.kind === 10) {
+        if (this.onJump) this.onJump(ev.a, ev.b, ev.c);
+      }
+    }
+  }
+
+  _inspectFuture(fStep, stepDur, emitTime, dtAhead, checkPads, checkBb, checkJump) {
+    const tr = this.track;
+    const fBar = Math.floor(fStep / 16);
+    const fs16 = fStep % 16;
+    const { sec, barInSec } = this._getSectionAtBar(fBar);
+    const isTomFill = sec.tomFill && barInSec === sec.bars - 1 && fs16 >= 12;
+    const introEarly = sec.lateKick && barInSec < 2;
+    const dSet = (barInSec % 4 === 3 && sec.drumSet === 0) ? 1 : sec.drumSet;
+    const kickPat = tr.kicks[dSet] || tr.kicks[0];
+    const snarePat = tr.snares[dSet] || tr.snares[0];
+
+    // Check if this exact step is a major section drop / big beat drop (triggers disconnected track jump!)
+    let isJumpBeat = 0;
+    if (barInSec === 0 && fs16 === 0 && fBar > 0) {
+      if (sec.drop) {
+        isJumpBeat = 2; // MEGA-DROP disconnected track chasm!
+      } else if (sec.energy >= 0.80) {
+        const prev = this._getSectionAtBar(fBar - 1).sec;
+        if (prev.energy <= 0.55) isJumpBeat = 1; // High-energy chorus entry air-gap!
+      }
+    }
+
+    if (checkJump && isJumpBeat > 0) {
+      this._pushEv(emitTime, 10, dtAhead, isJumpBeat === 2 ? 1 : 0, sec.energy);
+    }
+
+    // Beat-synced Speed Pads aligned to KICK hits!
+    if (checkPads && !isTomFill && !introEarly && !isJumpBeat && kickPat[fs16] && sec.kick > 0) {
+      if (fStep - this._lastPadStep >= 3) {
+        this._lastPadStep = fStep;
+        this._pushEv(emitTime, 8, dtAhead, sec.drop ? 1 : 0, sec.energy);
+      }
+    }
+
+    // Billboards aligned to a DIFFERENT part of the beat: SNARE / CLAP backbeats & heavy STABS!
+    if (checkBb && !isTomFill && !introEarly) {
+      const isSnare = sec.snare > 0 && snarePat[fs16] === 1;
+      const isGantryHit = (sec.stab > 0 && tr.stabPat && tr.stabPat[fs16] && fs16 === 0) ||
+        (sec.chord > 0 && tr.chordPat && tr.chordPat[fs16] && fs16 === 0) ||
+        (tr.mode === 'retrowave' && sec.ep > 0 && fs16 === 0 && barInSec % 2 === 0);
+      if ((isSnare || isGantryHit) && fStep - this._lastBbStep >= 4) {
+        this._lastBbStep = fStep;
+        this._pushEv(emitTime, 9, dtAhead, isGantryHit ? 1 : 0, sec.energy);
       }
     }
   }
@@ -427,8 +485,18 @@ export class SynthEngine {
     this._lyricIndex = 0;
     this._evHead = 0;
     this._evTail = 0;
+    this._lastPadStep = -99;
+    this._lastBbStep = -99;
     this.nextStepTime = this.ctx.currentTime + 0.05;
     this.startTime = this.nextStepTime;
+    // Pre-populate upcoming speed pads & snare/stab billboards already visible down-track on start!
+    const stepDur0 = 60 / this.track.bpm / 4;
+    const padLead0 = Math.max(8, Math.round(1.55 / stepDur0));
+    const bbLead0 = Math.max(8, Math.round(1.70 / stepDur0));
+    const maxPre = Math.max(padLead0, bbLead0);
+    for (let k = 2; k < maxPre; k++) {
+      this._inspectFuture(k, stepDur0, this.startTime, k * stepDur0, k < padLead0, k < bbLead0, false);
+    }
     this.telemetry.bpm = this.track.bpm;
     this.telemetry.mode = this.track.mode;
     this.telemetry.rasterMode = this.track.mode === 'tracker' ? 1.0 : 0.0;
@@ -556,6 +624,13 @@ export class SynthEngine {
 
     if (!this._offline) {
       this._pushEv(t, 1, bar, chord.a[s16 % 4], s16);
+      // Lookahead spatial rhythm cues for speed pads (kick), billboards (snare/stab), and jumps (big drops)!
+      const padLead = Math.max(8, Math.round(1.55 / stepDur));
+      const bbLead = Math.max(8, Math.round(1.70 / stepDur));
+      const jumpLead = Math.max(16, Math.round(3.35 / stepDur));
+      this._inspectFuture(step + padLead, stepDur, t, padLead * stepDur, true, false, false);
+      this._inspectFuture(step + bbLead, stepDur, t, bbLead * stepDur, false, true, false);
+      this._inspectFuture(step + jumpLead, stepDur, t, jumpLead * stepDur, false, false, true);
     }
 
     if (sec.roll && barInSec === 0 && s16 === 0) {

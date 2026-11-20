@@ -149,6 +149,8 @@ uniform vec3 uShipPos;
 uniform float uStabFlash;
 uniform float uRasterMode;
 uniform float uStepPulse;
+uniform float uTime;
+uniform vec4 uPads[8];
 
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec4 outDepth;
@@ -178,12 +180,26 @@ void main() {
     float centerDash = step(0.42, fract(s * 0.14)) * smoothstep(0.045, 0.02, abs(u));
     col = mix(col, vec3(0.95, 0.95, 0.98), centerDash * 0.9);
 
-    // Wipeout speed pads periodically in center
-    float padBand = step(0.93, fract(s * 0.0085));
-    float padShape = smoothstep(0.26, 0.22, abs(u));
-    float chev = step(0.5, fract(s * 0.35 - abs(u) * 2.2));
-    vec3 padCol = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 0.82, 0.1), chev);
-    col = mix(col, padCol * 1.4, padBand * padShape);
+    // Beat-synced Wipeout speed boost pads & disconnected-jump launch chevrons!
+    for (int i = 0; i < 8; i++) {
+      vec4 pd = uPads[i];
+      if (pd.y > 0.1) {
+        float ds = s - pd.x;
+        if (abs(ds) < pd.y) {
+          float isLaunch = pd.w;
+          float padW = mix(0.32, 0.72, isLaunch);
+          float padShape = smoothstep(padW + 0.04, padW - 0.02, abs(u));
+          float endFade = smoothstep(pd.y, pd.y - 1.2, abs(ds));
+          float chev = step(0.46, fract(ds * 0.36 - abs(u) * 2.5 - uTime * 3.8));
+          vec3 basePad = isLaunch > 0.5
+            ? mix(vec3(1.0, 0.16, 0.48), vec3(1.0, 0.88, 0.16), chev)
+            : mix(vec3(0.0, 0.96, 1.0), vec3(1.0, 0.84, 0.12), chev);
+          vec3 padCol = mix(basePad, vec3(1.0, 0.99, 0.96), pd.z * 0.58);
+          float glowBoost = 1.35 + uBeat * 0.25 + pd.z * 1.05 + isLaunch * 0.28;
+          col = mix(col, padCol * glowBoost, padShape * endFade);
+        }
+      }
+    }
 
     // Crisp red/white edge curbs
     float curbMask = smoothstep(0.84, 0.87, abs(u));
@@ -351,8 +367,10 @@ void main() {
   // Subtle high-speed energy ripple down the continuous beam
   float pulse = 0.88 + 0.12 * sin(t * 28.0 - uTime * 38.0);
 
+  // Fade cleanly before reaching camera near-plane so steep ramp launches never whiteout the lens!
+  float nearFade = smoothstep(2.4, 8.2, vViewZ);
   vec3 col = mix(uBeamColor, vec3(1.0, 0.99, 0.96), core * 0.85);
-  float alpha = (sheath * 0.72 + core * 0.95) * alongFade * pulse * uIntensity;
+  float alpha = (sheath * 0.72 + core * 0.95) * alongFade * nearFade * pulse * uIntensity;
 
   outColor = vec4(col * alpha * 1.45, alpha);
   float d = clamp(vViewZ / uMaxDepth, 0.0, 1.0);

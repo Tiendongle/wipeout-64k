@@ -39,6 +39,13 @@ export class Ship {
     this.surgeHold = 0.0;
     this.catchUp = 0.0;
 
+    // Disconnected track jump airborne state
+    this.airH = 0.0;
+    this.airPitch = 0.0;
+    this.inAir = 0;
+    this._wasInAir = 0;
+    this._airState = { inAir: 0, u: 0, airY: 0, airPitch: 0, isMega: 0 };
+
     // Reusable sample objects (zero per-frame allocations!)
     this._sample = {};
     this._lookSample = {};
@@ -65,17 +72,35 @@ export class Ship {
     const rawRest = 11.4 + music.energy * 5.6 + (music.isDrop ? 3.8 : 0.0);
     const restS = rawRest + (12.4 - rawRest) * (this.catchUp * 0.80);
 
-    // Discrete kick-drum thrust impulse — allows juicy pull-away first, then eases smoothly as camera catches up!
-    if (music.kickId !== this._lastKickId) {
-      this._lastKickId = music.kickId;
-      const distDamp = Math.max(0.28, 1.0 - Math.max(0.0, this.relS - 16.0) / 24.0);
-      const catchDamp = 1.0 - this.catchUp * 0.44;
-      const kickPush = (17.0 + music.energy * 23.0 + (music.bassEnergy || 0) * 12.0 + (music.isDrop ? 11.0 : 0.0)) * distDamp * catchDamp;
-      this.relVel = Math.min(88.0, this.relVel + kickPush);
-      this.thrust = Math.min(1.90, Math.max(this.thrust, 0.75 + music.energy * 0.75 + (music.subBassPunch || 0) * 0.35));
+    // Check physical beat-synced Speed Pad crossings on the track!
+    const padHit = track.updatePads(dt, this.worldS);
+    const hasKick = music.kickId !== this._lastKickId;
+    if (hasKick) this._lastKickId = music.kickId;
+
+    // Check if an unhit speed pad is very close ahead (let the physical pad crossing trigger the surge!)
+    let padImminent = false;
+    for (let i = 0; i < track.speedPads.length; i++) {
+      const dsPad = track.speedPads[i].s - this.worldS;
+      if (dsPad > -6.0 && dsPad < 28.0) { padImminent = true; break; }
     }
 
-    // Big DROP impact: dramatic initial afterburner launch, then camera delays ~1.5s before accelerating to catch up!
+    // Fire crisp forward surge right as the craft flies over a beat-synced Speed Pad
+    // (or on audio kick fallback if no pad is lined up yet during initial 1.5s)
+    if (padHit === 2) {
+      // MEGA-LAUNCH ramp pad at the lip of a disconnected track drop!
+      this.surgeHold = 0.0;
+      this.catchUp *= 0.15;
+      this.relVel = Math.max(this.relVel, 108.0);
+      this.thrust = 2.0;
+    } else if (padHit === 1 || (hasKick && !padImminent)) {
+      const distDamp = Math.max(0.28, 1.0 - Math.max(0.0, this.relS - 16.0) / 24.0);
+      const catchDamp = 1.0 - this.catchUp * 0.44;
+      const kickPush = (18.5 + music.energy * 24.0 + (music.bassEnergy || 0) * 12.0 + (music.isDrop ? 11.0 : 0.0)) * distDamp * catchDamp;
+      this.relVel = Math.min(90.0, this.relVel + kickPush);
+      this.thrust = Math.min(1.95, Math.max(this.thrust, 0.85 + music.energy * 0.78 + (music.subBassPunch || 0) * 0.35));
+    }
+
+    // Big DROP impact: ensures explosive afterburner surge right as the beat drops!
     if (music.dropId !== this._lastDropId) {
       this._lastDropId = music.dropId;
       this.surgeHold = 0.0;
@@ -115,22 +140,31 @@ export class Ship {
     this.latVel += latForce * dt;
     this.lat += this.latVel * dt;
 
-    // 3. Strong underpressure / ground-effect suspension over bumps & hills
-    // High stiffness + strong damping keeps hover tightly glued to track surface
+    // 3. Strong underpressure / ground-effect suspension + ballistic airborne arc over disconnected track jumps!
+    const air = track.getAirState(this.worldS, this._airState);
+    this.inAir = air.inAir;
+    if (this._wasInAir && !this.inAir) {
+      // Touchdown onto lower landing deck: crisp ground-effect cushion compression + thruster flare!
+      this.hoverVel = -4.2;
+      this.thrust = Math.max(this.thrust, 1.55);
+    }
+    this._wasInAir = this.inAir;
+    this.airH += (air.airY - this.airH) * Math.min(1, dt * (this.inAir ? 18.0 : 14.0));
+    this.airPitch += (air.airPitch - this.airPitch) * Math.min(1, dt * 10.0);
+
     const slopeDelta = (frame.pitch - this._prevSlope) / Math.max(0.008, dt);
     this._prevSlope = frame.pitch;
-    const bumpCompression = Math.max(-0.16, Math.min(0.16, -slopeDelta * 0.04));
+    const bumpCompression = this.inAir ? 0 : Math.max(-0.16, Math.min(0.16, -slopeDelta * 0.04));
     const antiGravFloat = music.mode === 'retrowave' ? ((music.subBassEnvelope || 0) * 0.12) : 0.0;
     const targetH = 0.78 + bumpCompression + antiGravFloat + Math.sin(nowSec * 22.0) * 0.018;
     const hForce = (targetH - this.hoverH) * 85.0 - this.hoverVel * 16.0;
     this.hoverVel += hForce * dt;
-    this.hoverH = Math.max(0.56, Math.min(1.02, this.hoverH + this.hoverVel * dt));
+    this.hoverH = Math.max(0.46, Math.min(1.06, this.hoverH + this.hoverVel * dt));
 
-    // 4. Roll into corners & lateral velocity; pitch tightly hugs track slope
+    // 4. Roll into corners & lateral velocity; pitch arcs smoothly over disconnected skyway jumps!
     const targetRoll = -frame.curv * 42.0 - this.latVel * 0.09;
     this.roll += (targetRoll - this.roll) * Math.min(1, dt * 8.0);
-    // Tiny nose-down under hard thrust, nose-level at cruise
-    const targetPitchOff = -Math.max(0, this.relVel) * 0.0022;
+    const targetPitchOff = -Math.max(0, this.relVel) * 0.0022 + this.airPitch;
     this.pitchOffset += (targetPitchOff - this.pitchOffset) * Math.min(1, dt * 10.0);
 
     // Build ship world basis from track frame + local roll + tiny pitchOffset
@@ -159,9 +193,10 @@ export class Ship {
     this.up[0] = nux; this.up[1] = nuy; this.up[2] = nuz;
     this.forward[0] = fx; this.forward[1] = fy; this.forward[2] = fz;
 
-    this.pos[0] = frame.x + frame.rx * this.lat + frame.ux * this.hoverH;
-    this.pos[1] = frame.y + frame.ry * this.lat + frame.uy * this.hoverH;
-    this.pos[2] = frame.z + frame.rz * this.lat + frame.uz * this.hoverH;
+    const totalH = this.hoverH + this.airH;
+    this.pos[0] = frame.x + frame.rx * this.lat + frame.ux * totalH;
+    this.pos[1] = frame.y + frame.ry * this.lat + frame.uy * totalH;
+    this.pos[2] = frame.z + frame.rz * this.lat + frame.uz * totalH;
 
     // 5. Continuous thruster beam length & intensity (stays blazing bright even after camera catches up!)
     const speedFactor = Math.max(0, (this.relS - 10.0) / 42.0);

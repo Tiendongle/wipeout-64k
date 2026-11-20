@@ -22,9 +22,14 @@ export class Track {
     this.camShakeY = 0;
     this.camDrift = 0;
 
-    // Immutable per-segment curvature & elevation keyed by integer segId
+    // Immutable per-segment curvature, elevation & gap flag keyed by integer segId
     this._segData = new Map();
     this._maxGenerated = -999999;
+    this._yOffset = 0;
+
+    // Beat-synced world-space Speed Pads & Disconnected Track Jumps
+    this.speedPads = [];
+    this.jumps = [];
 
     // Pre-allocated frame samples for current render frame (relative to camera origin)
     this.samples = new Array(TOTAL_SEGS + 1);
@@ -38,7 +43,8 @@ export class Track {
         yaw: 0,
         pitch: 0,
         bank: 0,
-        curv: 0
+        curv: 0,
+        gap: 0
       };
     }
 
@@ -51,6 +57,7 @@ export class Track {
     this.camBank = 0;
     this._camSample = {};
     this._lookSample = {};
+    this._camAir = { inAir: 0, airY: 0, airPitch: 0, isMega: 0 };
 
     this._ensureGenerated(0);
     this._rebuildSamples();
@@ -61,31 +68,159 @@ export class Track {
     this.mouseTarget = Math.max(-1, Math.min(1, normX));
   }
 
+  isInGap(worldS) {
+    for (let i = 0; i < this.jumps.length; i++) {
+      const j = this.jumps[i];
+      if (worldS >= j.launchS - 6.0 && worldS <= j.landS + 6.0) return true;
+    }
+    return false;
+  }
+
+  getAirState(worldS, out) {
+    for (let i = 0; i < this.jumps.length; i++) {
+      const j = this.jumps[i];
+      if (worldS >= j.launchS && worldS <= j.landS) {
+        const u = (worldS - j.launchS) / Math.max(1.0, j.landS - j.launchS);
+        out.inAir = 1;
+        out.u = u;
+        out.airY = 4.0 * u * (1.0 - u) * j.peakAir;
+        out.airPitch = (1.0 - 2.0 * u) * (j.isMega ? 0.27 : 0.20);
+        out.isMega = j.isMega;
+        return out;
+      }
+    }
+    out.inAir = 0;
+    out.u = 0;
+    out.airY = 0;
+    out.airPitch = 0;
+    out.isMega = 0;
+    return out;
+  }
+
+  spawnSpeedPad(worldS, isLaunch = 0) {
+    if (!isLaunch && this.isInGap(worldS)) return;
+    for (let i = 0; i < this.speedPads.length; i++) {
+      if (Math.abs(this.speedPads[i].s - worldS) < 15.0) return;
+    }
+    this.speedPads.push({
+      s: worldS,
+      halfLen: isLaunch ? 7.6 : 4.8,
+      flash: 0.0,
+      kind: isLaunch ? 1.0 : 0.0,
+      hit: false
+    });
+    if (this.speedPads.length > 24) this.speedPads.shift();
+  }
+
+  scheduleJump(targetWorldS, isMega = 0) {
+    // Place jump safely past _maxGenerated so ramp, chasm, and lower deck bake immutably beyond horizon fog!
+    const rampLen = 10;
+    const minStart = this._maxGenerated + rampLen + 4;
+    const startSeg = Math.max(minStart, Math.round(targetWorldS / SEG_LEN));
+    // Avoid overlapping another jump
+    for (let i = 0; i < this.jumps.length; i++) {
+      if (Math.abs(this.jumps[i].startSeg - startSeg) < 55) return null;
+    }
+    const gapSegs = isMega ? 22 : 16; // 66u chasm for BIG DROP, 48u chasm for chorus entry!
+    const endSeg = startSeg + gapSegs;
+    const dropY = isMega ? -14.0 : -9.0;
+    const peakAir = isMega ? 11.5 : 7.5;
+    const launchS = startSeg * SEG_LEN;
+    const landS = endSeg * SEG_LEN;
+    const jump = {
+      startSeg, endSeg, rampLen,
+      launchS, landS,
+      dropY, peakAir,
+      launchY: 0,
+      appliedOffset: false,
+      isMega: isMega ? 1 : 0
+    };
+    this.jumps.push(jump);
+    if (this.jumps.length > 6) this.jumps.shift();
+
+    // Place a blazing full-width launch boost pad right on the ski-jump lip!
+    this.spawnSpeedPad((startSeg - 2.5) * SEG_LEN, 1);
+    return jump;
+  }
+
+  updatePads(dt, shipWorldS) {
+    let hitType = 0;
+    for (let i = this.speedPads.length - 1; i >= 0; i--) {
+      const p = this.speedPads[i];
+      if (p.flash > 0) p.flash = Math.max(0, p.flash - dt * 3.4);
+      if (!p.hit && shipWorldS >= p.s - 3.5 && shipWorldS <= p.s + 11.0) {
+        p.hit = true;
+        p.flash = 1.0;
+        hitType = Math.max(hitType, p.kind > 0.5 ? 2 : 1);
+      }
+      if (p.s < this.dist - 24.0) {
+        this.speedPads.splice(i, 1);
+      }
+    }
+    // Prune completed jumps far behind camera
+    for (let i = this.jumps.length - 1; i >= 0; i--) {
+      if (this.jumps[i].landS < this.dist - 60.0) {
+        this.jumps.splice(i, 1);
+      }
+    }
+    return hitType;
+  }
+
   _getSeg(id) {
     let d = this._segData.get(id);
     if (d) return d;
-    const prev = this._segData.get(id - 1) || { curv: 0, y: 0, slope: 0 };
+    const prev = this._segData.get(id - 1) || { curv: 0, y: 0, gap: 0 };
 
-    // Mouse shapes oncoming curvature smoothly, combined with organic S-curves
-    // + Track 4 acid cutoff curvature modulation (immutable once generated!)
+    // Check if segment belongs to an immutable disconnected track jump!
+    let activeJump = null;
+    for (let i = 0; i < this.jumps.length; i++) {
+      const j = this.jumps[i];
+      if (id >= j.startSeg - j.rampLen && id <= j.endSeg) {
+        activeJump = j;
+        break;
+      }
+    }
+
     const acidWave = this.acidDrive * 0.0042 * Math.sin(id * 0.078);
     const organic =
       0.0036 * Math.sin(id * 0.043) +
       0.0024 * Math.sin(id * 0.017 + 1.4) + acidWave;
-    const targetCurv = this.mouseSmooth * 0.0135 + organic;
-    // Clothoid-like smoothing so turns enter and exit gracefully
+    const targetCurv = (activeJump && id > activeJump.startSeg - 4)
+      ? (this.mouseSmooth * 0.004 + organic * 0.35) // straighter sightline across the disconnected chasm!
+      : (this.mouseSmooth * 0.0135 + organic);
     const curv = prev.curv + (targetCurv - prev.curv) * 0.14;
 
-    // Rolling hills loosely driven by music energy
     const amp = 11.0 + this.hillEnergy * 16.0;
     const rawY =
       Math.sin(id * 0.052 + 0.3) * amp +
       Math.sin(id * 0.023 - 0.8) * (amp * 0.65) +
-      Math.cos(id * 0.095) * (amp * 0.22);
-    // Smooth height so hill changes never kink when energy shifts
-    const y = prev.y + (rawY - prev.y) * 0.22;
+      Math.cos(id * 0.095) * (amp * 0.22) + this._yOffset;
+    let y = prev.y + (rawY - prev.y) * 0.22;
+    let gap = 0;
 
-    d = { curv, y };
+    if (activeJump) {
+      if (id <= activeJump.startSeg) {
+        // Ski-jump upward launch ramp!
+        const u = (id - (activeJump.startSeg - activeJump.rampLen)) / activeJump.rampLen;
+        const lift = u * u * (activeJump.isMega ? 6.2 : 4.2);
+        y += lift;
+        if (id === activeJump.startSeg) activeJump.launchY = y;
+      } else if (id < activeJump.endSeg) {
+        // Disconnected open-sky chasm: hide road geometry while smoothly descending spline to lower landing deck!
+        gap = 1;
+        const u = (id - activeJump.startSeg) / (activeJump.endSeg - activeJump.startSeg);
+        y = activeJump.launchY + activeJump.dropY * (u * u * (3 - 2 * u));
+      } else {
+        // Landing lip: permanently adopt the dropped elevation so track continues seamlessly!
+        if (!activeJump.appliedOffset) {
+          this._yOffset += activeJump.dropY;
+          activeJump.appliedOffset = true;
+        }
+        y = activeJump.launchY + activeJump.dropY;
+      }
+    }
+
+    d = { curv, y, gap };
     this._segData.set(id, d);
     return d;
   }
@@ -177,6 +312,7 @@ export class Track {
       sample.yaw = yaw;
       sample.curv = sd.curv;
       sample.bank = -sd.curv * 26.0; // bank into turns
+      sample.gap = sd.gap || 0;
 
       const midYaw = yaw + sd.curv * SEG_LEN * 0.5;
       x += Math.sin(midYaw) * SEG_LEN;
@@ -204,6 +340,7 @@ export class Track {
       sample.yaw = yaw;
       sample.curv = sd.curv;
       sample.bank = -sd.curv * 26.0;
+      sample.gap = sd.gap || 0;
     }
 
     // Compute smooth tangent (forward), right, and banked up vectors for every sample
@@ -248,11 +385,12 @@ export class Track {
       sm.pitch = Math.asin(Math.max(-0.9, Math.min(0.9, fy)));
     }
 
-    // Update camera frame (zero per-frame object allocations!)
+    // Update camera frame (zero per-frame object allocations + sweeping aerial chase lift over jump gaps!)
     const camFrame = this.sampleAt(this.dist, this._camSample);
     const lookFrame = this.sampleAt(this.dist + 28.0, this._lookSample);
+    const camAir = this.getAirState(this.dist, this._camAir);
     const camLat = this.camShakeX + this.camDrift * 0.45;
-    const camUpOff = 4.4 + this.camShakeY + this.camDrift * 0.18;
+    const camUpOff = 4.4 + camAir.airY * 0.52 + this.camShakeY + this.camDrift * 0.18;
     this.camPos.x = camFrame.x + camFrame.ux * camUpOff + camFrame.rx * camLat;
     this.camPos.y = camFrame.y + camFrame.uy * camUpOff + camFrame.ry * camLat;
     this.camPos.z = camFrame.z + camFrame.uz * camUpOff + camFrame.rz * camLat;

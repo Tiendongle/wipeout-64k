@@ -33,6 +33,42 @@ synth.onStep = () => {
   }
 };
 
+// Spatial rhythm synchronization:
+// - Speed Pads on track = KICK beats (ship crosses pad right on beat -> surges forward!)
+// - Trackside Billboards & Arch Gantries = SNARE / CLAP backbeats & STABS
+// - Disconnected Track Jump / Drop = BIG DROPS & high-energy chorus entries!
+function predictTrackSpeed(energy, isDrop) {
+  const target = 96 + energy * 74 + (isDrop ? 18 : 0) + ship.catchUp * 34;
+  return track.speed * 0.62 + target * 0.38;
+}
+
+synth.onSpeedPad = (dtAhead, isDrop, energy) => {
+  const worldS = ship.worldS + predictTrackSpeed(energy, isDrop) * dtAhead;
+  track.spawnSpeedPad(worldS, 0);
+};
+
+synth.onBillboard = (dtAhead, isGantry, energy) => {
+  const worldS = ship.worldS + predictTrackSpeed(energy, 0) * dtAhead;
+  if (!track.isInGap(worldS)) {
+    renderer.spawnBillboard(worldS, isGantry);
+  }
+};
+
+synth.onJump = (dtAhead, isMega, energy) => {
+  const worldS = ship.worldS + predictTrackSpeed(energy, isMega) * dtAhead;
+  const j = track.scheduleJump(worldS, isMega);
+  if (j) {
+    // Frame the lower landing deck with an iconic Wipeout overhead arch gantry!
+    renderer.spawnBillboard(j.landS + 14.0, 1);
+  }
+};
+
+// Seed initial attract-mode speed pads & billboards ahead before audio starts
+for (let i = 1; i <= 6; i++) {
+  track.spawnSpeedPad(ship.worldS + i * 58, 0);
+  renderer.spawnBillboard(ship.worldS + i * 58 - 26, i % 3 === 0 ? 1 : 0);
+}
+
 const hud = new Hud(hudRoot, {
   onStart: () => {
     synth.start(synth.trackIndex);
@@ -108,9 +144,11 @@ window.__WIPEOUT = {
   hooks: synth.telemetry
 };
 
-// Idle demo lyric spawner when audio hasn't started yet so the scene is alive immediately
+// Idle demo spawner when audio hasn't started yet so the scene is alive immediately
 let idleLyricTimer = 0;
 let idleWordIdx = 0;
+let idleBeatTimer = 0;
+let idleBeatIdx = 0;
 
 let lastMs = performance.now();
 function frame(nowMs) {
@@ -145,6 +183,13 @@ function frame(nowMs) {
       idleLyricTimer = 0;
       const words = TRACKS[synth.trackIndex].lyrics;
       renderer.spawnLyric(words[idleWordIdx++ % words.length], track.dist, 0.55);
+    }
+    idleBeatTimer += dt;
+    if (idleBeatTimer > 0.62) {
+      idleBeatTimer = 0;
+      const bi = idleBeatIdx++;
+      if (bi % 2 === 0) track.spawnSpeedPad(ship.worldS + 260, 0);
+      else renderer.spawnBillboard(ship.worldS + 265, bi % 6 === 1 ? 1 : 0);
     }
   }
 
