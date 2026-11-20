@@ -303,7 +303,6 @@ const _bPts = new Float32Array((BEAM_STEPS + 1) * 3);
 const _bRig = new Float32Array((BEAM_STEPS + 1) * 3);
 const _bUps = new Float32Array((BEAM_STEPS + 1) * 3);
 const _bTmp = {};
-const _bAir = { inAir: 0, airY: 0, airPitch: 0, isMega: 0 };
 
 export function writeBeamGeometry(track, ship, out) {
   let o = 0;
@@ -315,17 +314,18 @@ export function writeBeamGeometry(track, ship, out) {
   for (let sIdx = 0; sIdx < 2; sIdx++) {
     const engineLat = (sIdx === 0 ? -0.58 : 0.58);
     const lat = ship.lat + engineLat;
-    const baseH = ship.hoverH + engineUp;
+    const baseH = Math.min(0.88, Math.max(0.36, ship.hoverH)) + engineUp;
 
     for (let i = 0; i <= BEAM_STEPS; i++) {
       const t = i / BEAM_STEPS;
       const s = ship.worldS - engineBack - t * len;
       const fr = track.sampleAt(s, _bTmp);
-      const air = track.getAirState(s, _bAir);
+      // Trace the ship's EXACT recorded world-space flight path behind the nozzles!
+      const wakeRelY = ship.sampleWakeWorldY(s) - track.camTrackY + engineUp;
 
       const shipWeight = (1 - t) * (1 - t) * Math.sqrt(1 - t);
       let px = fr.x + fr.rx * lat + fr.ux * baseH;
-      let py = fr.y + fr.ry * lat + fr.uy * baseH + air.airY;
+      let py = wakeRelY + fr.ry * lat;
       let pz = fr.z + fr.rz * lat + fr.uz * baseH;
 
       if (i === 0) {

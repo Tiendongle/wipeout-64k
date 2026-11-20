@@ -49,6 +49,7 @@ export class Track {
     }
 
     this.baseSeg = 0;
+    this.camTrackY = 0;
     this.camPos = { x: 0, y: 0, z: 0 };
     this.camForward = { x: 0, y: 0, z: -1 };
     this.camUp = { x: 0, y: 1, z: 0 };
@@ -57,10 +58,10 @@ export class Track {
     this.camBank = 0;
     this._camSample = {};
     this._lookSample = {};
-    this._camAir = { inAir: 0, airY: 0, airPitch: 0, isMega: 0 };
-    this._lookAir = { inAir: 0, airY: 0, airPitch: 0, isMega: 0 };
+    this._camSurf = { y: 0, slope: 0, hasRoad: 1 };
     this._camLift = 0;
     this._lookLift = 0;
+    this._targetShipClearance = 0;
     this._dt = 0.016;
 
     this._ensureGenerated(0);
@@ -72,6 +73,10 @@ export class Track {
     this.mouseTarget = Math.max(-1, Math.min(1, normX));
   }
 
+  setShipClearance(clearance) {
+    this._targetShipClearance = Math.max(0, clearance);
+  }
+
   isInGap(worldS) {
     for (let i = 0; i < this.jumps.length; i++) {
       const j = this.jumps[i];
@@ -80,32 +85,16 @@ export class Track {
     return false;
   }
 
-  getAirState(worldS, out) {
-    for (let i = 0; i < this.jumps.length; i++) {
-      const j = this.jumps[i];
-      const gapLen = Math.max(1.0, j.landS - j.launchS);
-      // Extend graceful anti-grav glide flare 24% onto the landing runway so touchdown is silky smooth!
-      const flareEnd = j.launchS + gapLen * 1.24;
-      if (worldS >= j.launchS && worldS <= flareEnd) {
-        const t = (worldS - j.launchS) / (gapLen * 1.24);
-        // Asymmetric gliding curve: climbs quickly off ramp, hangs weightlessly, flares with zero vertical impact at t=1!
-        const shape = Math.pow(t, 0.72) * Math.pow(Math.max(0, 1.0 - t), 1.38) * 3.25;
-        // Smooth flare back to level pitch as craft settles onto ground-effect cushion
-        const rawPitch = (0.34 - t) * (j.isMega ? 0.56 : 0.42);
-        const flareOut = Math.min(1.0, (1.0 - t) * 4.5);
-        out.inAir = t < 0.96 ? 1 : 0;
-        out.u = t;
-        out.airY = shape * j.peakAir;
-        out.airPitch = Math.max(-0.16, Math.min(0.26, rawPitch)) * flareOut;
-        out.isMega = j.isMega;
-        return out;
-      }
-    }
-    out.inAir = 0;
-    out.u = 0;
-    out.airY = 0;
-    out.airPitch = 0;
-    out.isMega = 0;
+  // True persistent world-space track surface height, tangent slope (dy/ds), and solid-road flag
+  getSurfaceAt(worldS, out) {
+    const fSeg = worldS / SEG_LEN;
+    const i0 = Math.floor(fSeg);
+    const frac = fSeg - i0;
+    const s0 = this._getSeg(i0);
+    const s1 = this._getSeg(i0 + 1);
+    out.y = s0.y + (s1.y - s0.y) * frac;
+    out.slope = (s1.y - s0.y) / SEG_LEN;
+    out.hasRoad = (s0.gap || s1.gap) ? 0 : 1;
     return out;
   }
 
@@ -125,24 +114,23 @@ export class Track {
   }
 
   scheduleJump(targetWorldS, isMega = 0) {
-    // Place jump safely past _maxGenerated so ramp, wide chasm, and lower deck bake immutably beyond horizon fog!
-    const rampLen = 14;
+    // Place jump safely past _maxGenerated so ramp, chasm, and lower deck bake immutably beyond horizon fog!
+    const rampLen = isMega ? 14 : 12;
     const minStart = this._maxGenerated + rampLen + 4;
     const startSeg = Math.max(minStart, Math.round(targetWorldS / SEG_LEN));
     for (let i = 0; i < this.jumps.length; i++) {
-      if (Math.abs(this.jumps[i].startSeg - startSeg) < 95) return null;
+      if (Math.abs(this.jumps[i].startSeg - startSeg) < 90) return null;
     }
-    // Wide epic Wipeout chasms (~0.85s-1.25s of true soaring hang-time!)
-    const gapSegs = isMega ? 60 : 44; // 180u chasm for BIG DROP, 132u chasm for chorus jump!
+    // Realistic Wipeout skyway gaps tuned for genuine Newtonian ballistic arcs!
+    const gapSegs = isMega ? 48 : 36; // 144u chasm for BIG DROP, 108u chasm for chorus jump
     const endSeg = startSeg + gapSegs;
-    const dropY = isMega ? -20.0 : -14.0;
-    const peakAir = isMega ? 16.5 : 11.5;
+    const dropY = isMega ? -17.0 : -12.0;
     const launchS = startSeg * SEG_LEN;
     const landS = endSeg * SEG_LEN;
     const jump = {
       startSeg, endSeg, rampLen,
       launchS, landS,
-      dropY, peakAir,
+      dropY,
       launchY: 0,
       appliedOffset: false,
       isMega: isMega ? 1 : 0
@@ -212,9 +200,9 @@ export class Track {
 
     if (activeJump) {
       if (id <= activeJump.startSeg) {
-        // Long sweeping ski-jump upward launch ramp!
+        // Real speed-responsive ski-jump launch ramp (natural ballistic launch proportional to speed^2!)
         const u = (id - (activeJump.startSeg - activeJump.rampLen)) / activeJump.rampLen;
-        const lift = u * u * (activeJump.isMega ? 9.2 : 6.4);
+        const lift = u * u * (activeJump.isMega ? 3.8 : 2.1);
         y += lift;
         if (id === activeJump.startSeg) activeJump.launchY = y;
       } else if (id < activeJump.endSeg) {
@@ -308,6 +296,7 @@ export class Track {
     const s0 = this._getSeg(base);
     const s1 = this._getSeg(base + 1);
     const camTrackY = s0.y + (s1.y - s0.y) * frac;
+    this.camTrackY = camTrackY;
     const camCurv = s0.curv + (s1.curv - s0.curv) * frac;
 
     // Anchor node index corresponding to baseSeg is BEHIND_SEGS.
@@ -403,22 +392,22 @@ export class Track {
       sm.pitch = Math.asin(Math.max(-0.9, Math.min(0.9, fy)));
     }
 
-    // Update camera frame (zero per-frame object allocations + sweeping aerial chase lift over jump gaps!)
+    // Update camera frame tracking the real physics-simulated ship height (no canned jump curves!)
     const camFrame = this.sampleAt(this.dist, this._camSample);
     const lookFrame = this.sampleAt(this.dist + 28.0, this._lookSample);
-    const camAir = this.getAirState(this.dist, this._camAir);
-    const lookAir = this.getAirState(this.dist + 28.0, this._lookAir);
     const camLat = this.camShakeX + this.camDrift * 0.45;
     const camUpOff = 4.4 + this.camShakeY + this.camDrift * 0.18;
-    const camAirLift = Math.max(camAir.airY * 1.08, lookAir.airY * 0.62);
-    const lookAirLift = lookAir.airY * 0.92;
-    this._camLift += (camAirLift - this._camLift) * Math.min(1, this._dt * (camAirLift > this._camLift ? 14.0 : 5.8));
-    this._lookLift += (lookAirLift - this._lookLift) * Math.min(1, this._dt * (lookAirLift > this._lookLift ? 14.0 : 5.8));
+    const shipAir = Math.max(0, this._targetShipClearance - 0.88);
+    // Ride slightly ABOVE the airborne craft so twin thruster trails always stream cleanly below/behind!
+    const targetCamLift = shipAir * 1.18;
+    const targetLookLift = shipAir * 0.88;
+    this._camLift += (targetCamLift - this._camLift) * Math.min(1, this._dt * (targetCamLift > this._camLift ? 12.0 : 6.0));
+    this._lookLift += (targetLookLift - this._lookLift) * Math.min(1, this._dt * (targetLookLift > this._lookLift ? 12.0 : 6.0));
     this.camPos.x = camFrame.x + camFrame.ux * camUpOff + camFrame.rx * camLat;
     this.camPos.y = camFrame.y + camFrame.uy * camUpOff + camFrame.ry * camLat + this._camLift;
     this.camPos.z = camFrame.z + camFrame.uz * camUpOff + camFrame.rz * camLat;
 
-    // Track the soaring craft dead-center across the entire jump arc and plush flare landing!
+    // Keep the airborne craft cleanly centered across crests, ramps, and landings!
     let lx = (lookFrame.x + lookFrame.ux * 2.2) - this.camPos.x;
     let ly = (lookFrame.y + lookFrame.uy * 2.2 + this._lookLift) - this.camPos.y;
     let lz = (lookFrame.z + lookFrame.uz * 2.2) - this.camPos.z;

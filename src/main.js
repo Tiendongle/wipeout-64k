@@ -193,6 +193,7 @@ function frame(nowMs) {
     }
   }
 
+  track.setShipClearance(ship.hoverH);
   track.update(dt, music, ship.catchUp);
   ship.update(dt, track, music, nowSec);
   renderer.render(track, ship, music, TRACKS[synth.trackIndex], dt, nowSec);
