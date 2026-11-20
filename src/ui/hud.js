@@ -73,8 +73,8 @@ export class Hud {
           <div class="start-kicker">THE DESIGNERS REPUBLIC // 64K DEMOSCENE</div>
           <div class="start-h1">WIPEOUT-64K</div>
           <pre class="start-nfo">SIZE .... ${kb} / 64.0 KB  |  ASSETS .. NONE
-AUDIO ... 6 PROCEDURAL SYNTH RACKS (LIVE)
-KEYS .... 1-6 TRACKS  |  M MUTE  |  G GLITCH</pre>
+AUDIO ... 8 TRACKS / 6 SYNTH RACKS (LIVE)
+KEYS .... 1-8 TRACKS  |  M MUTE  |  G GLITCH</pre>
           <div class="start-desc">
             MOVE MOUSE OR DRAG TOUCH LEFT / RIGHT TO SHAPE THE ONCOMING TRACK.<br>
             THE CRAFT DRIVES AUTONOMOUSLY WITH GROUND-EFFECT &amp; THRUST SURGE.

@@ -784,9 +784,15 @@ export class SynthEngine {
           const subFreq = midiToFreq(chord.b + (code === 2 ? 7 : 0));
           this._playSubSine45(t, stepDur * 3.85, subFreq, bassGain * 0.92);
         } else if (mode === 'cracktro') {
-          const freq = midiToFreq(chord.b + off);
-          const sweep = 500 + ((step % 128) * 9.5) + sec.filter * 420;
-          this._playCracktroBass(t, stepDur * 1.9, freq, bassGain * 1.15, sweep);
+          if (sec.energy < 0.35) {
+            // Hypnotic mid-breakdown ('m'): deep sustained sub-sine + floating triangle chimes!
+            if (s16 === 0) this._playSubSine45(t, stepDur * 15.2, midiToFreq(chord.b), bassGain * 0.95);
+            if (s16 % 8 === 0) this._playCracktroLead(t, stepDur * 7.5, midiToFreq(tr.root + 24 + chord.p[2]), 0.14, false);
+          } else {
+            const freq = midiToFreq(chord.b + off);
+            const sweep = 500 + ((step % 128) * 9.5) + sec.filter * 420;
+            this._playCracktroBass(t, stepDur * 1.9, freq, bassGain * 1.15, sweep);
+          }
         }
       }
     }
@@ -811,7 +817,12 @@ export class SynthEngine {
           this._playGlassBellArp(t, stepDur * 1.05, midiToFreq(arpBase + semi), sec.arp * 0.088, s16 % 2 ? 0.36 : -0.36);
         } else if (mode === 'cracktro') {
           const semi = chord.a[idx % 4];
-          this._playCracktroArp(t, stepDur * 0.88, midiToFreq(arpBase + 12 + semi), sec.arp * 0.092, s16 % 2 ? 0.34 : -0.34);
+          if (sec.energy < 0.35) {
+            if (s16 % 4 === 2) this._playCracktroArp(t, stepDur * 1.4, midiToFreq(arpBase + 12 + semi), sec.arp * 0.065, s16 % 8 === 2 ? -0.35 : 0.35);
+          } else {
+            const octShift = (sec.roll && progress > 0.5) ? 24 : 12;
+            this._playCracktroArp(t, stepDur * 0.88, midiToFreq(arpBase + octShift + semi), sec.arp * 0.092, s16 % 2 ? 0.34 : -0.34);
+          }
         }
       }
     }
