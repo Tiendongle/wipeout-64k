@@ -46,9 +46,9 @@ export class Ship {
     this.inAir = 0;
     this._surf = { y: 0, slope: 0, hasRoad: 1, isRamp: 0 };
     this._noseSurf = { y: 0, slope: 0, hasRoad: 1, isRamp: 0 };
-    this._wakeCap = 48;
-    this._wakeS = new Float32Array(48);
-    this._wakeY = new Float32Array(48);
+    this._wakeCap = 64;
+    this._wakeS = new Float32Array(64);
+    this._wakeY = new Float32Array(64);
     this._wakeHead = 0;
     this._wakeCount = 0;
     this._lastWakeS = -999;
@@ -189,7 +189,7 @@ export class Ship {
       this.vy = effSlope * effSpeed;
     }
 
-    const GRAVITY = 135.0; // weighty Wipeout/F-Zero gravity — zero float, clean landing stroke!
+    const GRAVITY = 152.0; // crisp, weighty Wipeout gravity — eliminates crest-jump floatiness!
     const antiGravFloat = music.mode === 'retrowave' ? ((music.subBassEnvelope || 0) * 0.10) : 0.0;
     const restH = 0.84 + antiGravFloat + Math.sin(nowSec * 16.0) * 0.012;
     const roadVy = effSlope * effSpeed;
@@ -205,22 +205,22 @@ export class Ship {
         if (clearance <= restH) {
           // Firm, well-damped magnetic air-bed floor (absorbs compression without jarring hard-stops!)
           const pen = restH - clearance;
-          ay += GRAVITY + pen * (145.0 + pen * 190.0) - relVy * 17.5;
+          ay += GRAVITY + pen * (155.0 + pen * 205.0) - relVy * 18.0;
         } else if (clearance < 1.85 && relVy < -3.5) {
           // Descent-ONLY progressive hydraulic shock absorber (zero float on climb, silky landing catch!)
           const c = 1.0 - (clearance - restH) / (1.85 - restH);
-          ay += (-relVy) * (13.0 * c * c);
+          ay += (-relVy) * (13.5 * c * c);
         } else if (clearance < 1.45 && !surf.isRamp && !noseSurf.isRamp) {
           // Active ground-effect downforce suction over normal hills (keeps rolling hills planted!)
           const s = 1.0 - (clearance - restH) / (1.45 - restH);
-          ay -= s * 40.0;
+          ay -= s * 46.0;
         }
       }
 
       this.vy += ay * subDt;
-      // Keep normal rolling hills planted while letting ski-jump ramps launch crisply with speed!
+      // Aerodynamic downforce cap prevents jumps on top of steep hill crests from getting floaty!
       const onRamp = surf.isRamp || noseSurf.isRamp;
-      const maxUpVy = surf.hasRoad ? (onRamp ? 30.0 : 10.0) : 32.0;
+      const maxUpVy = surf.hasRoad ? (onRamp ? 21.0 : 8.5) : 23.0;
       if (this.vy > maxUpVy) this.vy = maxUpVy;
       this.worldY += this.vy * subDt;
 
@@ -235,8 +235,8 @@ export class Ship {
     this.hoverH = clearance;
     this.inAir = (!surf.hasRoad || clearance > 1.45) ? 1 : 0;
 
-    // Record TRUE persistent worldY into ring buffer so twin thruster trails trace the exact 3D flight path!
-    if (this.worldS - this._lastWakeS >= 2.2) {
+    // Record TRUE persistent worldY densely (every 1.2u) so thruster trails hug hill crests cleanly!
+    if (this.worldS - this._lastWakeS >= 1.2) {
       this._lastWakeS = this.worldS;
       this._wakeS[this._wakeHead] = this.worldS;
       this._wakeY[this._wakeHead] = this.worldY;

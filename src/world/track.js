@@ -196,7 +196,9 @@ export class Track {
       Math.sin(id * 0.052 + 0.3) * amp +
       Math.sin(id * 0.023 - 0.8) * (amp * 0.65) +
       Math.cos(id * 0.095) * (amp * 0.22) + this._yOffset;
-    const baseY = prev.baseY + (rawY - prev.baseY) * 0.22;
+    // Damp underlying hill slope during a jump ramp so crest + ramp never double-stack into a floaty launch!
+    const hillBlend = (activeJump && id <= activeJump.startSeg) ? 0.08 : 0.22;
+    const baseY = prev.baseY + (rawY - prev.baseY) * hillBlend;
     let y = baseY;
     let gap = 0;
     let ramp = 0;
