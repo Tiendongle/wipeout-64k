@@ -115,16 +115,29 @@ export class Track {
     return out;
   }
 
-  spawnSpeedPad(worldS, isLaunch = 0) {
+  spawnSpeedPad(worldS, isLaunch = 0, energy = 0.5) {
     if (!isLaunch && this.isInGap(worldS)) return;
     for (let i = 0; i < this.speedPads.length; i++) {
       if (Math.abs(this.speedPads[i].s - worldS) < 15.0) return;
     }
+    const idx = (this._padLaneIdx = (this._padLaneIdx || 0) + 1);
+    // 0 = Blue (slowest), 1 = Green (faster), 2 = Red (fastest)
+    const tier = isLaunch ? 2 : ((idx % 5 === 0 || (energy > 0.86 && idx % 2 === 0)) ? 2 : ((idx % 2 === 0 || energy > 0.62) ? 1 : 0));
+    // Vary horizontal width (some compact single-lane, some medium, some wide horizontal bars!)
+    const widths = [0.20, 0.34, 0.52, 0.24, 0.44, 0.22, 0.58];
+    const w = isLaunch ? 0.72 : widths[idx % widths.length];
+    const lanes = [-0.48, 0.44, -0.22, 0.50, 0.0, -0.50, 0.28];
+    const maxU = Math.max(0, 0.76 - w);
+    const u = isLaunch ? 0.0 : Math.max(-maxU, Math.min(maxU, lanes[idx % lanes.length]));
     this.speedPads.push({
       s: worldS,
-      halfLen: isLaunch ? 9.0 : 4.8,
+      halfLen: isLaunch ? 9.0 : (3.8 + tier * 0.9),
+      w,
+      tier,
       flash: 0.0,
-      kind: isLaunch ? 1.0 : 0.0,
+      kind: isLaunch ? 1 : 0,
+      u,
+      lat: u * TRACK_HALF_WIDTH,
       hit: false
     });
     if (this.speedPads.length > 24) this.speedPads.shift();
@@ -168,7 +181,7 @@ export class Track {
       if (!p.hit && shipWorldS >= p.s - 3.5 && shipWorldS <= p.s + 11.0) {
         p.hit = true;
         p.flash = 1.0;
-        hitType = Math.max(hitType, p.kind > 0.5 ? 2 : 1);
+        hitType = Math.max(hitType, p.kind ? 4 : (p.tier + 1));
       }
       if (p.s < this.dist - 24.0) {
         this.speedPads.splice(i, 1);

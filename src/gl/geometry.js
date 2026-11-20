@@ -121,23 +121,14 @@ export function buildShipMesh() {
     const wOutR = [s * 2.48, -0.18, 2.28];
     const wDrop = [s * 2.32, -0.58, 2.42]; // downward-canted fin tip (Image 2)
 
-    if (s > 0) {
-      pushQuad(pFront, wOutF, wOutR, pRearIn, W);
-      pushQuad(pRearIn, wOutR, wOutF, pRearBot, B);
-      pushTri(pFront, pMidIn, wOutF, W2);
-      // Downward-swept rear stabilizer blade
-      pushTri(wOutF, wDrop, wOutR, W);
-      pushTri(wOutR, wDrop, wOutF, B);
-      // Red tDR racing badge accent on rear wing
-      pushTri([s * 1.48, 0.14, 1.55], [s * 1.98, 0.02, 1.75], [s * 1.88, -0.02, 2.18], R);
-    } else {
-      pushQuad(pFront, pRearIn, wOutR, wOutF, W);
-      pushQuad(pRearBot, wOutF, wOutR, pRearIn, B);
-      pushTri(pFront, wOutF, pMidIn, W2);
-      pushTri(wOutF, wOutR, wDrop, W);
-      pushTri(wOutR, wOutF, wDrop, B);
-      pushTri([s * 1.48, 0.14, 1.55], [s * 1.88, -0.02, 2.18], [s * 1.98, 0.02, 1.75], R);
-    }
+    const q = (p1, p2, p3, p4, cl) => s > 0 ? pushQuad(p1, p2, p3, p4, cl) : pushQuad(p1, p4, p3, p2, cl);
+    const t = (p1, p2, p3, cl) => s > 0 ? pushTri(p1, p2, p3, cl) : pushTri(p1, p3, p2, cl);
+    q(pFront, wOutF, wOutR, pRearIn, W);
+    q(pRearIn, wOutR, wOutF, pRearBot, B);
+    t(pFront, pMidIn, wOutF, W2);
+    t(wOutF, wDrop, wOutR, W);
+    t(wOutR, wDrop, wOutF, B);
+    t([s * 1.48, 0.14, 1.55], [s * 1.98, 0.02, 1.75], [s * 1.88, -0.02, 2.18], R);
   }
 
   // --- 4. Ventral Black Belly Stabilizer Fin (ref Image 2) ---

@@ -103,8 +103,9 @@ export class Ship {
     const restS = rawRest + (12.4 - rawRest) * (this.catchUp * 0.80);
 
     // Check physical beat-synced Speed Pad crossings on the track!
+    // padHit: 1 = Blue (slowest), 2 = Green (faster), 3 = Red (fastest), 4 = Mega-Launch ramp
     const padHit = track.updatePads(dt, this.worldS);
-    this.padBurst = padHit;
+    this.padBurst = padHit >= 3 ? 2 : (padHit > 0 ? 1 : 0);
     const hasKick = music.kickId !== this._lastKickId;
     if (hasKick) this._lastKickId = music.kickId;
 
@@ -115,20 +116,20 @@ export class Ship {
       if (dsPad > -6.0 && dsPad < 28.0) { padImminent = true; break; }
     }
 
-    // Fire crisp forward surge right as the craft flies over a beat-synced Speed Pad
-    // (or on audio kick fallback if no pad is lined up yet during initial 1.5s)
-    if (padHit === 2) {
+    // Fire dynamic forward surge scaled by pad color tier (Blue=0.72x, Green=1.18x, Red=1.68x!)
+    if (padHit === 4) {
       // MEGA-LAUNCH ramp pad at the lip of a disconnected track drop!
       this.surgeHold = 0.0;
       this.catchUp *= 0.15;
       this.relVel = Math.max(this.relVel, 108.0);
       this.thrust = 2.0;
-    } else if (padHit === 1 || (hasKick && !padImminent)) {
+    } else if (padHit > 0 || (hasKick && !padImminent)) {
+      const tierMult = padHit === 3 ? 1.68 : (padHit === 2 ? 1.18 : 0.72);
       const distDamp = Math.max(0.28, 1.0 - Math.max(0.0, this.relS - 16.0) / 24.0);
       const catchDamp = 1.0 - this.catchUp * 0.44;
-      const kickPush = (18.5 + music.energy * 24.0 + (music.bassEnergy || 0) * 12.0 + (music.isDrop ? 11.0 : 0.0)) * distDamp * catchDamp;
-      this.relVel = Math.min(90.0, this.relVel + kickPush);
-      this.thrust = Math.min(1.95, Math.max(this.thrust, 0.85 + music.energy * 0.78 + (music.subBassPunch || 0) * 0.35));
+      const kickPush = (18.5 + music.energy * 24.0 + (music.bassEnergy || 0) * 12.0 + (music.isDrop ? 11.0 : 0.0)) * tierMult * distDamp * catchDamp;
+      this.relVel = Math.min(104.0, this.relVel + kickPush);
+      this.thrust = Math.min(2.0, Math.max(this.thrust, (0.65 + padHit * 0.34) + music.energy * 0.55));
     }
 
     // Big DROP impact: ensures explosive afterburner surge right as the beat drops!
@@ -164,11 +165,29 @@ export class Ship {
     this.worldS = track.dist + this.relS;
     const frame = track.sampleAt(this.worldS, this._sample);
 
-    // 2. Autonomous racing line: hugs inside apex of curves + subtle organic weave
+    // 2. Autonomous racing line: homes onto upcoming staggered speed pads when in reach,
+    //    blending smoothly with the inside-apex curve racing line!
     const lookAhead = track.sampleAt(this.worldS + 26.0, this._lookSample);
-    const apexTarget = Math.max(-3.6, Math.min(3.6, lookAhead.curv * 290.0)) +
+    let targetLat = Math.max(-3.6, Math.min(3.6, lookAhead.curv * 290.0)) +
       Math.sin(nowSec * 0.75) * 0.85;
-    const latForce = (apexTarget - this.lat) * 8.5 - this.latVel * 4.8;
+    let padW = 0.0;
+    let bestDs = 999.0;
+    let bestLat = 0.0;
+    for (let i = 0; i < track.speedPads.length; i++) {
+      const p = track.speedPads[i];
+      if (!p.hit && p.kind < 0.5) {
+        const ds = p.s - this.worldS;
+        if (ds > -2.5 && ds < 92.0 && ds < bestDs) {
+          bestDs = ds;
+          bestLat = p.lat || 0.0;
+        }
+      }
+    }
+    if (bestDs < 92.0) {
+      padW = Math.min(1.0, Math.max(0.0, 1.22 - bestDs / 76.0));
+      targetLat += (bestLat - targetLat) * padW;
+    }
+    const latForce = (targetLat - this.lat) * (8.5 + padW * 16.5) - this.latVel * (4.8 + padW * 3.8);
     this.latVel += latForce * dt;
     this.lat += this.latVel * dt;
 

@@ -184,18 +184,24 @@ void main() {
     for (int i = 0; i < 8; i++) {
       vec4 pd = uPads[i];
       if (pd.y > 0.1) {
+        float halfL = mod(pd.y, 16.0);
         float ds = s - pd.x;
-        if (abs(ds) < pd.y) {
-          float isLaunch = pd.w;
-          float padW = mix(0.32, 0.72, isLaunch);
-          float padShape = smoothstep(padW + 0.04, padW - 0.02, abs(u));
-          float endFade = smoothstep(pd.y, pd.y - 1.2, abs(ds));
-          float chev = step(0.46, fract(ds * 0.36 - abs(u) * 2.5 - uTime * 3.8));
-          vec3 basePad = isLaunch > 0.5
-            ? mix(vec3(1.0, 0.16, 0.48), vec3(1.0, 0.88, 0.16), chev)
-            : mix(vec3(0.0, 0.96, 1.0), vec3(1.0, 0.84, 0.12), chev);
-          vec3 padCol = mix(basePad, vec3(1.0, 0.99, 0.96), pd.z * 0.42);
-          float glowBoost = 1.20 + uBeat * 0.18 + pd.z * 0.65 + isLaunch * 0.14;
+        if (abs(ds) < halfL) {
+          float padW = floor(pd.y * 0.0625) * 0.01;
+          float tier = floor(pd.z);
+          float flash = fract(pd.z);
+          float du = u - pd.w;
+          float padShape = smoothstep(padW + 0.04, padW - 0.02, abs(du));
+          float endFade = smoothstep(halfL, halfL - 1.2, abs(ds));
+          float chev = step(0.46, fract(ds * (0.32 + tier * 0.06) - abs(du) * 2.4 - uTime * (3.2 + tier * 1.1)));
+          // Tier 0 = Blue (slowest), Tier 1 = Green (faster), Tier 2 = Red (fastest)
+          vec3 basePad = tier < 0.5
+            ? mix(vec3(0.04, 0.36, 1.0), vec3(0.0, 0.94, 1.0), chev)
+            : (tier < 1.5
+              ? mix(vec3(0.0, 0.72, 0.25), vec3(0.42, 1.0, 0.16), chev)
+              : mix(vec3(1.0, 0.08, 0.22), vec3(1.0, 0.68, 0.10), chev));
+          vec3 padCol = mix(basePad, vec3(1.0, 0.99, 0.96), flash * 0.45);
+          float glowBoost = 1.16 + tier * 0.14 + uBeat * 0.18 + flash * 0.68;
           col = mix(col, padCol * glowBoost, padShape * endFade);
         }
       }
@@ -579,8 +585,39 @@ uniform float uStepPulse;
 uniform float uGlitch;
 uniform float uDropFlash;
 uniform float uTime;
+uniform float uKph;
 
 out vec4 outColor;
+
+const int KSEG[10] = int[10](119, 36, 93, 109, 46, 107, 123, 37, 127, 111);
+const vec4 KCO[7] = vec4[7](
+  vec4(0.14, 1.36, 0.86, 1.36), vec4(0.14, 0.75, 0.14, 1.36), vec4(0.86, 0.75, 0.86, 1.36),
+  vec4(0.14, 0.75, 0.86, 0.75), vec4(0.14, 0.14, 0.14, 0.75), vec4(0.86, 0.14, 0.86, 0.75),
+  vec4(0.14, 0.14, 0.86, 0.14)
+);
+float sdKph(vec2 u, vec2 texel, float kph) {
+  if (kph < 1.0) return 9.0;
+  vec2 res = 1.0 / texel;
+  float sc = min(res.x, res.y) * 0.115;
+  vec2 p = (u * res - vec2(res.x - sc * 4.68 - 20.0, 56.0)) / sc;
+  if (p.y < -0.15 || p.y > 1.65) return 9.0;
+  p.x -= p.y * 0.22;
+  if (p.x < -0.15 || p.x > 4.55) return 9.0;
+  int idx = int(clamp(floor(p.x / 1.12), 0.0, 3.0));
+  int val = int(kph);
+  if (idx == 0 && val < 1000) return 9.0;
+  vec2 q = vec2(p.x - float(idx) * 1.12, p.y);
+  int dig = idx == 0 ? (val / 1000) % 10 : (idx == 1 ? (val / 100) % 10 : (idx == 2 ? (val / 10) % 10 : val % 10));
+  int m = KSEG[clamp(dig, 0, 9)];
+  float d = 9.0;
+  for (int i = 0; i < 7; i++) {
+    if (((m >> i) & 1) != 0) {
+      vec2 pa = q - KCO[i].xy, ba = KCO[i].zw - KCO[i].xy;
+      d = min(d, length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)));
+    }
+  }
+  return d;
+}
 
 // Compute smooth Circle of Confusion (0 = tack-sharp, 1 = max bokeh blur)
 float getCoC(float d) {
@@ -684,13 +721,37 @@ void main() {
         bPeak = max(bPeak, bs * pow(1.0 - t, 0.48));
       }
       vec3 bFinal = mix(bAcc / max(bW, 0.001), bPeak, 0.62 * surgeAmt);
-      bloomStreak = bFinal * (0.96 * surgeAmt * radialMask);
+      float ang = atan(rad.y, rad.x);
+      float ray = pow(max(0.0, sin(ang * 32.0 + sin(ang * 5.0) * 2.0)), 14.0) * pow(max(0.0, sin(rDist * 20.0 - uTime * 18.0 + ang * 3.0)), 5.0);
+      vec3 rayCol = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 0.18, 0.42), 0.5 + 0.5 * sin(ang * 3.0));
+      bloomStreak = bFinal * (0.96 * surgeAmt * radialMask) + rayCol * (ray * radialMask * surgeAmt * 0.92);
     }
   }
 
   // Rich neon anamorphic bloom + radial light-streaks (energy-preserving soft knee prevents milky washout)
   vec3 bloom = texture(uBloom, uv).rgb + bloomStreak;
   col += bloom * uBloomStrength * (1.06 - min(col, vec3(1.0)) * 0.18);
+
+  // WebGL2 KPH Speed Digits: true GPU multiply interior + hollow neon outline + radial speed-blur smear & bloom!
+  if (uKph > 0.5) {
+    float kd = sdKph(uv, uTexel, uKph);
+    if (kd < 1.8) {
+      float body = smoothstep(0.105, 0.082, kd);
+      float rim = smoothstep(0.026, 0.006, abs(kd - 0.095));
+      // Sample radial speed-blur echo trail along (uv - uBlurCenter)
+      vec2 kVel = (uv - uBlurCenter) * (0.14 * min(1.3, uSpeedBlur));
+      float trail = 0.0;
+      for (int i = 1; i <= 5; i++) {
+        float td = sdKph(uv - kVel * (float(i) * 0.2), uTexel, uKph);
+        trail += smoothstep(0.038, 0.0, abs(td - 0.095)) * (1.1 - float(i) * 0.18);
+      }
+      // True GPU Multiply blend against the live 3D scene + radial bloom outline!
+      vec3 multTint = mix(vec3(0.28, 0.05, 0.18), vec3(0.06, 0.22, 0.38), smoothstep(0.0, 0.095, kd));
+      col = mix(col, col * multTint, body * 0.82);
+      col *= 1.0 - trail * 0.22;
+      col += (vec3(0.0, 0.94, 1.0) * (trail * 0.52) + mix(vec3(0.98, 0.97, 0.94), vec3(0.0, 0.95, 1.0), 0.35) * rim) * (0.95 + uBloomStrength * 0.35);
+    }
+  }
 
   // Track 3 (Tracker Protocol) crisp retro demoscene CRT raster scanlines synced to onStep!
   if (uRasterMode > 0.01) {

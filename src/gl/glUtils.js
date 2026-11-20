@@ -7,9 +7,6 @@ export function createProgram(gl, vsSrc, fsSrc) {
   gl.attachShader(prog, vs);
   gl.attachShader(prog, fs);
   gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-    throw new Error('Program link failed: ' + gl.getProgramInfoLog(prog));
-  }
   gl.deleteShader(vs);
   gl.deleteShader(fs);
   return prog;
@@ -19,9 +16,6 @@ function compileShader(gl, type, src) {
   const s = gl.createShader(type);
   gl.shaderSource(s, src);
   gl.compileShader(s);
-  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-    throw new Error('Shader compile failed: ' + gl.getShaderInfoLog(s) + '\n' + src);
-  }
   return s;
 }
 

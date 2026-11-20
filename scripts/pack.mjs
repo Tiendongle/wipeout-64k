@@ -21,6 +21,7 @@ const MODULES = [
   'src/gl/geometry.js',
   'src/gl/textures.js',
   'src/gl/renderer.js',
+  'src/ui/intro.js',
   'src/ui/hud.js',
   'src/main.js'
 ];
@@ -161,6 +162,8 @@ function minifyJs(code) {
       }
       if (!hasExpr && s.startsWith('`#version 300 es')) {
         s = '`' + minifyGlsl(s.slice(1, -1)) + '`';
+      } else if (s.includes('<div') || s.includes('<svg')) {
+        s = s.replace(/<!--[\s\S]*?-->/g, '').replace(/>\s+</g, '><').replace(/\n\s+/g, ' ');
       }
       pushTok('tpl', s);
       continue;
@@ -329,7 +332,7 @@ if (css.includes('\x00') || bundledJs.includes('\x00')) {
   throw new Error('Unexpected NUL byte in CSS or JS payload!');
 }
 
-const innerPayload = css + '\x00' + bundledJs;
+const innerPayload = bundledJs + '\x00' + css;
 const deflated = zlib.deflateRawSync(Buffer.from(innerPayload, 'utf8'), { level: 9 });
 const encoded = encodeBase122(deflated);
 
@@ -340,7 +343,7 @@ if (Buffer.compare(verified, deflated) !== 0) {
 }
 
 // Self-extracting HTML shell using Base122 + native browser DecompressionStream('deflate-raw')
-const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>tDR // WIPEOUT-64K</title></head><body><canvas id="gl"></canvas><div id="hud"></div><script>(async()=>{const S="${encoded}",I=[0,10,13,34,38,60,92],o=[];let b=0,n=0,p=v=>{b=b<<7|v;n+=7;if(n>=8)o.push(b>>(n-=8)&255)};for(let i=0;i<S.length;i++){const c=S.charCodeAt(i);if(c<128)p(c);else{const v=c-192,k=v>>7;k>6?p(I[v&7]):(p(I[k]),p(v&127))}}const t=await new Response(new Blob([new Uint8Array(o)]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).text(),x=t.indexOf("\\0"),st=document.createElement("style");st.textContent=t.slice(0,x);document.head.appendChild(st);(0,eval)(t.slice(x+1))})()</script></body></html>`;
+const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>tDR // WIPEOUT-64K</title></head><body><canvas id="gl"></canvas><div id="hud"></div><script>(async()=>{const S="${encoded}",I=[0,10,13,34,38,60,92],o=[];let b=0,n=0,p=v=>{b=b<<7|v;n+=7;if(n>=8)o.push(b>>(n-=8)&255)};for(let i=0;i<S.length;i++){const c=S.charCodeAt(i);if(c<128)p(c);else{const v=c-192,k=v>>7;k>6?p(I[v&7]):(p(I[k]),p(v&127))}}const t=await new Response(new Blob([new Uint8Array(o)]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).text(),x=t.indexOf("\\0"),st=document.createElement("style");st.textContent=t.slice(x+1);document.head.appendChild(st);(0,eval)(t.slice(0,x))})()</script></body></html>`;
 
 fs.mkdirSync(DIST, { recursive: true });
 fs.writeFileSync(OUT_FILE, html, 'utf8');

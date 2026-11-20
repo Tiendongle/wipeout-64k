@@ -44,7 +44,7 @@ function predictTrackSpeed(energy, isDrop) {
 
 synth.onSpeedPad = (dtAhead, isDrop, energy) => {
   const worldS = ship.worldS + predictTrackSpeed(energy, isDrop) * dtAhead;
-  track.spawnSpeedPad(worldS, 0);
+  track.spawnSpeedPad(worldS, 0, isDrop ? 1.0 : energy);
 };
 
 synth.onBillboard = (dtAhead, isGantry, energy) => {
@@ -76,20 +76,35 @@ for (let i = 1; i <= 6; i++) {
   renderer.spawnBillboard(ship.worldS + i * 58 - 26, i % 3 === 0 ? 1 : 0);
 }
 
+function triggerIntroLaunch() {
+  renderer.introMode = false;
+  renderer.triggerLaunch();
+  ship.padBurst = 2;
+  ship.surgeVel = Math.max(ship.surgeVel || 0, 58);
+}
+
 const hud = new Hud(hudRoot, {
   onStart: () => {
+    triggerIntroLaunch();
     synth.start(synth.trackIndex);
     hud.setTrackState(synth.trackIndex, synth.playing, synth.muted);
   },
   onTogglePlay: () => {
+    triggerIntroLaunch();
     synth.toggle();
     hud.setTrackState(synth.trackIndex, synth.playing, synth.muted);
   },
   onToggleMute: () => {
     synth.setMuted(!synth.muted);
+    if (!synth.muted && synth.volume < 0.05) synth.setVolume(0.84);
+    hud.setTrackState(synth.trackIndex, synth.playing, synth.muted, synth.volume);
+  },
+  onVolume: (v) => {
+    synth.setVolume(v);
     hud.setTrackState(synth.trackIndex, synth.playing, synth.muted);
   },
   onSelectTrack: (idx) => {
+    triggerIntroLaunch();
     loadTrackVisuals(idx);
     synth.setTrack(idx);
     if (!synth.playing) synth.start(idx);
@@ -104,7 +119,7 @@ function handlePointer(clientX) {
 }
 
 function isHudButton(e) {
-  return !!(e.target && e.target.closest && e.target.closest('button'));
+  return !!(e.target && e.target.closest && e.target.closest('button,input'));
 }
 
 window.addEventListener('pointermove', (e) => {
@@ -142,11 +157,13 @@ window.addEventListener('resize', () => renderer.resize(), { passive: true });
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space') {
     e.preventDefault();
+    if (!hud.overlay.classList.contains('hidden')) triggerIntroLaunch();
     hud.overlay.classList.add('hidden');
     synth.toggle();
     hud.setTrackState(synth.trackIndex, synth.playing, synth.muted);
   } else if (e.key >= '1' && e.key <= String(TRACKS.length)) {
     const idx = Number(e.key) - 1;
+    if (!hud.overlay.classList.contains('hidden')) triggerIntroLaunch();
     hud.overlay.classList.add('hidden');
     loadTrackVisuals(idx);
     synth.setTrack(idx);
@@ -154,7 +171,8 @@ window.addEventListener('keydown', (e) => {
     hud.setTrackState(synth.trackIndex, synth.playing, synth.muted);
   } else if (e.key === 'm' || e.key === 'M') {
     synth.setMuted(!synth.muted);
-    hud.setTrackState(synth.trackIndex, synth.playing, synth.muted);
+    if (!synth.muted && synth.volume < 0.05) synth.setVolume(0.84);
+    hud.setTrackState(synth.trackIndex, synth.playing, synth.muted, synth.volume);
   } else if (e.key === 'g' || e.key === 'G') {
     renderer.glitchOn = !renderer.glitchOn;
   } else if (e.key === 'l' || e.key === 'L') {
@@ -163,6 +181,7 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+/*DEV_START*/
 // Lightweight frame-time telemetry for verifying smooth stutter-free performance
 const perf = {
   frames: 0,
@@ -187,6 +206,7 @@ window.__WIPEOUT = {
   perf,
   hooks: synth.telemetry
 };
+/*DEV_END*/
 
 // Idle demo spawner when audio hasn't started yet so the scene is alive immediately
 let idleLyricTimer = 0;
@@ -201,6 +221,7 @@ function frame(nowMs) {
   const dt = Math.min(0.05, Math.max(0.001, rawMs * 0.001));
   const nowSec = nowMs * 0.001;
 
+  /*DEV_START*/
   if (rawMs > 0 && rawMs < 250) {
     perf._ring[perf._idx] = rawMs;
     perf._idx = (perf._idx + 1) % 120;
@@ -218,22 +239,36 @@ function frame(nowMs) {
       }
     }
   }
+  /*DEV_END*/
 
   const music = synth.update(dt, nowSec);
 
   if (!synth.playing) {
+    // High-velocity attract-mode overdrive while intro poster is active!
+    if (renderer.introMode) {
+      music.energy = 0.88 + 0.12 * Math.sin(nowSec * 2.2);
+      music.kick = Math.pow(Math.max(0, Math.sin(nowSec * Math.PI * 2.4)), 6.0);
+      music.beatPulse = Math.max(music.beatPulse, music.kick);
+    }
     idleLyricTimer += dt;
     if (idleLyricTimer > 1.35) {
       idleLyricTimer = 0;
       const words = TRACKS[synth.trackIndex].lyrics;
-      renderer.spawnLyric(words[idleWordIdx++ % words.length], track.dist, 0.55);
+      renderer.spawnLyric(words[idleWordIdx++ % words.length], track.dist, 0.85);
     }
     idleBeatTimer += dt;
-    if (idleBeatTimer > 0.62) {
+    if (idleBeatTimer > 0.52) {
       idleBeatTimer = 0;
       const bi = idleBeatIdx++;
-      if (bi % 2 === 0) track.spawnSpeedPad(ship.worldS + 260, 0);
-      else renderer.spawnBillboard(ship.worldS + 265, bi % 6 === 1 ? 1 : 0);
+      if (bi % 2 === 0) {
+        track.spawnSpeedPad(ship.worldS + 260, 0);
+        if (renderer.introMode && bi % 4 === 0) {
+          ship.padBurst = 1;
+          ship.surgeVel = Math.max(ship.surgeVel || 0, 34);
+        }
+      } else {
+        renderer.spawnBillboard(ship.worldS + 265, bi % 6 === 1 ? 1 : 0);
+      }
     }
   }
 
