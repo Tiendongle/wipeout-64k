@@ -8,7 +8,12 @@ export class Hud {
     this.root = root;
     this.cb = callbacks;
 
+    const kb = (document.documentElement.outerHTML.length / 1024).toFixed(1);
+    const beatSegs = Array.from({ length: 16 }, () => '<span class="beat-seg"></span>').join('');
     root.innerHTML = `
+      <div class="hz-bar hz-top"></div>
+      <div class="hz-bar hz-bot"></div>
+      <div class="tdr-kana">グラヴィティ・リーグ // 64K</div>
       <div class="hud-top">
         <div class="tdr-corner">
           <div class="tdr-emblem-wrap">
@@ -33,7 +38,11 @@ export class Hud {
           <div class="tdr-meta">
             <div class="tdr-title">tDR // WIPEOUT</div>
             <div class="tdr-sub" id="hudTrackSub">${TRACKS[0].subtitle}</div>
-            <div class="tdr-badge">64K // SINGLE-GL</div>
+            <div class="tdr-badges">
+              <div class="tdr-badge">64K // SINGLE-GL</div>
+              <span class="tdr-size">${kb} / 64.0 KB</span>
+              <svg class="tdr-reg" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="none" stroke="#f6f4ef" stroke-width="1.2"/><path d="M8 1v14M1 8h14" stroke="#f6f4ef" stroke-width="1.2"/></svg>
+            </div>
           </div>
         </div>
 
@@ -55,6 +64,7 @@ export class Hud {
         <div class="karaoke-strip">
           <div class="karaoke-label">RACING LYRICS // SYNC</div>
           <div class="karaoke-text" id="hudLyric">SYSTEM READY</div>
+          <div class="beat-row"><span class="beat-lap" id="hudLap">LAP 01</span>${beatSegs}</div>
         </div>
       </div>
 
@@ -62,6 +72,9 @@ export class Hud {
         <div class="start-card">
           <div class="start-kicker">THE DESIGNERS REPUBLIC // 64K DEMOSCENE</div>
           <div class="start-h1">WIPEOUT-64K</div>
+          <pre class="start-nfo">SIZE .... ${kb} / 64.0 KB  |  ASSETS .. NONE
+AUDIO ... 6 PROCEDURAL SYNTH RACKS (LIVE)
+KEYS .... 1-6 TRACKS  |  M MUTE  |  G GLITCH</pre>
           <div class="start-desc">
             MOVE MOUSE OR DRAG TOUCH LEFT / RIGHT TO SHAPE THE ONCOMING TRACK.<br>
             THE CRAFT DRIVES AUTONOMOUSLY WITH GROUND-EFFECT &amp; THRUST SURGE.
@@ -76,6 +89,8 @@ export class Hud {
     this.secEl = root.querySelector('#hudSection');
     this.subEl = root.querySelector('#hudTrackSub');
     this.lyricEl = root.querySelector('#hudLyric');
+    this.lapEl = root.querySelector('#hudLap');
+    this.beatSegs = [...root.querySelectorAll('.beat-seg')];
     this.playBtn = root.querySelector('#btnPlay');
     this.muteBtn = root.querySelector('#btnMute');
     this.overlay = root.querySelector('#startOverlay');
@@ -106,6 +121,8 @@ export class Hud {
     this._lastSec = '';
     this._lastLyric = '';
     this._lastFlash = false;
+    this._lastBar = -1;
+    this._lastLap = -1;
   }
 
   setTrackState(idx, playing, muted) {
@@ -139,6 +156,18 @@ export class Hud {
     if (music.lyric && music.lyric !== this._lastLyric) {
       this._lastLyric = music.lyric;
       this.lyricEl.textContent = music.lyric;
+    }
+
+    const bar = music.stepBar || 0;
+    const seg = bar % 16;
+    if (seg !== this._lastBar) {
+      this._lastBar = seg;
+      for (let i = 0; i < 16; i++) this.beatSegs[i].classList.toggle('on', i <= seg);
+    }
+    const lap = Math.floor(bar / 16) + 1;
+    if (lap !== this._lastLap) {
+      this._lastLap = lap;
+      this.lapEl.textContent = 'LAP ' + String(lap).padStart(2, '0');
     }
   }
 }

@@ -408,6 +408,8 @@ in float vViewZ;
 uniform sampler2D uTex;
 uniform float uMaxDepth;
 uniform float uAlphaCut;
+uniform float uLyricMode;
+uniform vec3 uAccent;
 
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec4 outDepth;
@@ -416,13 +418,56 @@ void main() {
   vec4 tex = texture(uTex, vUv);
   if (tex.a < uAlphaCut) discard;
 
-  vec3 col = tex.rgb * (1.0 + vGlow * 0.85);
+  vec3 col;
+  float a = tex.a;
+  if (uLyricMode > 0.5) {
+    if (vGlow < -4.0) {
+      // Faint trailing karaoke echo ghost
+      col = mix(tex.rgb, uAccent, 0.72) * 1.15;
+      a *= 0.28;
+    } else {
+      // Hardware-interpolated left-to-right karaoke fill sweep!
+      float fill = smoothstep(-0.08, 0.06, vGlow);
+      vec3 unlit = tex.rgb * 0.68;
+      vec3 lit = mix(tex.rgb, mix(vec3(1.0), uAccent, 0.42), 0.55) * 1.55;
+      col = mix(unlit, lit, fill);
+    }
+  } else {
+    col = tex.rgb * (1.0 + vGlow * 0.85);
+  }
   float fog = smoothstep(155.0, 385.0, vViewZ);
   col = mix(col, vec3(0.98, 0.66, 0.72), fog * 0.85);
 
   float d = clamp(vViewZ / uMaxDepth, 0.0, 1.0);
-  outColor = vec4(col, tex.a);
-  outDepth = vec4(d, d, d, tex.a);
+  outColor = vec4(col, a);
+  outDepth = vec4(d, d, d, a);
+}`;
+
+// Additive afterburner burst sparks on speed-pad crossings & mega-launches
+export const SPARK_VS = `#version 300 es
+precision highp float;
+layout(location = 0) in vec4 aPosLife;
+uniform mat4 uView;
+uniform mat4 uProj;
+uniform float uHeight;
+out float vLife;
+void main() {
+  vec4 vp = uView * vec4(aPosLife.xyz, 1.0);
+  vLife = aPosLife.w;
+  gl_Position = uProj * vp;
+  gl_PointSize = clamp((0.18 + 0.34 * vLife) * uHeight / max(1.5, -vp.z), 2.0, 26.0);
+}`;
+
+export const SPARK_FS = `#version 300 es
+precision highp float;
+in float vLife;
+uniform vec3 uAccent;
+out vec4 outColor;
+void main() {
+  float d = length(gl_PointCoord - 0.5);
+  float a = smoothstep(0.5, 0.05, d) * vLife;
+  vec3 col = mix(uAccent, vec3(1.0, 0.96, 0.82), vLife * 0.75);
+  outColor = vec4(col * a * 1.65, a);
 }`;
 
 export const POST_VS = `#version 300 es
@@ -520,6 +565,8 @@ uniform vec2 uBlurCenter;
 uniform vec2 uShipUv;
 uniform float uRasterMode;
 uniform float uStepPulse;
+uniform float uGlitch;
+uniform float uTime;
 
 out vec4 outColor;
 
@@ -541,8 +588,17 @@ const vec2 VOGEL[12] = vec2[12](
 );
 
 void main() {
-  vec3 centerCol = texture(uScene, vUv).rgb;
-  float centerD = texture(uDepth, vUv).r;
+  vec2 uv = vUv;
+  if (uGlitch > 0.01) {
+    float band = floor(uv.y * 22.0);
+    float gt = floor(uTime * 18.0);
+    float rnd = fract(sin(band * 127.1 + gt * 311.7) * 43758.5453);
+    if (rnd > 0.72) {
+      uv.x = clamp(uv.x + (rnd - 0.86) * 0.26 * uGlitch, 0.001, 0.999);
+    }
+  }
+  vec3 centerCol = texture(uScene, uv).rgb;
+  float centerD = texture(uDepth, uv).r;
   float centerCoC = getCoC(centerD);
 
   vec3 acc = centerCol;
@@ -552,7 +608,7 @@ void main() {
   if (centerCoC > 0.015) {
     vec2 stepScale = (8.0 * centerCoC) * uTexel;
     for (int i = 0; i < 12; i++) {
-      vec2 suv = clamp(vUv + VOGEL[i] * stepScale, vec2(0.001), vec2(0.999));
+      vec2 suv = clamp(uv + VOGEL[i] * stepScale, vec2(0.001), vec2(0.999));
       float sd = texture(uDepth, suv).r;
       float w = (sd >= centerD - 0.015) ? 1.0 : getCoC(sd);
       acc += texture(uScene, suv).rgb * w;
@@ -563,13 +619,13 @@ void main() {
   vec3 col = acc / wSum;
 
   // Ship-Tracked Cascaded Peak-Preserving Radial Zoom Blur + Luminous Hyperspace Light-Streaks
-  vec2 rad = vUv - uBlurCenter;
+  vec2 rad = uv - uBlurCenter;
   float rDist = length(rad * vec2(1.0, 0.84));
   float edge = smoothstep(0.07, 0.58, rDist);
   vec3 bloomStreak = vec3(0.0);
   if (uSpeedBlur > 0.015 && edge > 0.005) {
     float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-    float shipDist = length((vUv - uShipUv) * vec2(1.35, 1.10));
+    float shipDist = length((uv - uShipUv) * vec2(1.35, 1.10));
     float isShip = (1.0 - smoothstep(0.08, 0.21, shipDist)) * (1.0 - smoothstep(0.012, 0.032, abs(centerD - uFocusDepth)));
     float radialMask = edge * (1.0 - isShip);
     float surgeAmt = smoothstep(0.05, 1.12, uSpeedBlur);
@@ -581,7 +637,7 @@ void main() {
       float mW = 0.45;
       for (int i = 0; i < 14; i++) {
         float t = (float(i) + ign) / 14.0;
-        vec2 suv = clamp(vUv - vel * t, vec2(0.001), vec2(0.999));
+        vec2 suv = clamp(uv - vel * t, vec2(0.001), vec2(0.999));
         vec3 s = texture(uScene, suv).rgb;
         float w = pow(1.0 - t, 0.42);
         mAcc += s * w;
@@ -595,8 +651,8 @@ void main() {
 
       // Punchier peripheral radial chromatic dispersion along the streak vector
       vec2 caOff = vel * 0.20;
-      float rCh = texture(uScene, clamp(vUv + caOff, vec2(0.001), vec2(0.999))).r;
-      float bCh = texture(uScene, clamp(vUv - caOff, vec2(0.001), vec2(0.999))).b;
+      float rCh = texture(uScene, clamp(uv + caOff, vec2(0.001), vec2(0.999))).r;
+      float bCh = texture(uScene, clamp(uv - caOff, vec2(0.001), vec2(0.999))).b;
       float caMix = clamp(0.46 * surgeAmt * radialMask, 0.0, 0.48);
       col.r = mix(col.r, rCh, caMix);
       col.b = mix(col.b, bCh, caMix);
@@ -608,7 +664,7 @@ void main() {
       float bW = 0.0;
       for (int i = 0; i < 8; i++) {
         float t = (float(i) + ign) * 0.125;
-        vec2 buv = clamp(vUv - bVel * t, vec2(0.001), vec2(0.999));
+        vec2 buv = clamp(uv - bVel * t, vec2(0.001), vec2(0.999));
         vec3 bs = texture(uBloom, buv).rgb;
         float w = pow(1.0 - t, 0.65);
         bAcc += bs * w;
@@ -621,7 +677,7 @@ void main() {
   }
 
   // Rich neon anamorphic bloom + radial light-streaks (energy-preserving soft knee prevents milky washout)
-  vec3 bloom = texture(uBloom, vUv).rgb + bloomStreak;
+  vec3 bloom = texture(uBloom, uv).rgb + bloomStreak;
   col += bloom * uBloomStrength * (1.06 - min(col, vec3(1.0)) * 0.18);
 
   // Track 3 (Tracker Protocol) crisp retro demoscene CRT raster scanlines synced to onStep!

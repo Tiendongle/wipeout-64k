@@ -41,6 +41,7 @@ export class Ship {
     // Sustained high-speed camera catch-up state (0 = normal elastic gap, 1 = camera locked in slipstream!)
     this.surgeHold = 0.0;
     this.catchUp = 0.0;
+    this.padBurst = 0;
 
     // Real physics flight-path wake history (48 samples, zero allocations!)
     this.inAir = 0;
@@ -103,6 +104,7 @@ export class Ship {
 
     // Check physical beat-synced Speed Pad crossings on the track!
     const padHit = track.updatePads(dt, this.worldS);
+    this.padBurst = padHit;
     const hasKick = music.kickId !== this._lastKickId;
     if (hasKick) this._lastKickId = music.kickId;
 
@@ -132,6 +134,7 @@ export class Ship {
     // Big DROP impact: ensures explosive afterburner surge right as the beat drops!
     if (music.dropId !== this._lastDropId) {
       this._lastDropId = music.dropId;
+      this.padBurst = 2;
       this.surgeHold = 0.0;
       this.catchUp *= 0.15;
       this.relVel = Math.max(this.relVel, 118.0);

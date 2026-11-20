@@ -462,5 +462,94 @@ export const TRACKS = [
       'DRIFT AWAY', 'NEON', 'STREAMS', 'FUTURISTIC',
       'DREAMS', 'BEYOND', 'THE NIGHT', 'ETERNAL', 'LIGHT'
     ]
+  },
+
+  // =========================================================================
+  // 06 // GRAVITY LEAGUE — 2002 Electro-House Cracktro (128 BPM, A minor)
+  // =========================================================================
+  {
+    id: 'gravity-league',
+    code: '06',
+    name: 'GRAVITY LEAGUE',
+    subtitle: 'ELECTRO CRACKTRO // 128 BPM',
+    mode: 'cracktro',
+    bpm: 128,
+    root: 33, // A1 (55 Hz)
+    leadOct: 24,
+    soloOct: 24,
+    accentColor: '#ff5a00',
+    beamColor: [1.0, 0.42, 0.08],
+    patch: { pump: 0.48, revSend: 0.30, delaySend: 0.28 },
+    chords: [
+      { b: 33, p: [0, 3, 7, 12],   a: [0, 3, 7, 3] },   // Am
+      { b: 29, p: [-4, 0, 3, 8],   a: [-4, 0, 3, 0] },  // F
+      { b: 36, p: [3, 7, 10, 15],  a: [3, 7, 10, 7] },  // C
+      { b: 31, p: [-2, 2, 5, 10],  a: [-2, 2, 5, 2] },  // G
+      { b: 33, p: [0, 3, 7, 12],   a: [0, 3, 7, 3] },   // Am
+      { b: 29, p: [-4, 0, 3, 8],   a: [-4, 0, 3, 0] },  // F
+      { b: 36, p: [3, 7, 10, 15],  a: [3, 7, 10, 7] },  // C
+      { b: 31, p: [-2, 2, 5, 10],  a: [-2, 2, 5, 2] }   // G
+    ],
+    kicks: [
+      P('1000100010001000'),
+      P('1000100010001010'),
+      P('1000000010000000')
+    ],
+    snares: [
+      P('0000100000001000'),
+      P('0000100000001002'),
+      P('0000000000001000')
+    ],
+    hats: [
+      P('0010001000100010'),
+      P('0313032303130321')
+    ],
+    // Classic 8th-note sweeping sawtooth bass with +12 octave jump on steps 6 & 14!
+    bassPats: [
+      P('0-0-0-1-0-0-0-1-'),
+      P('0-0-0-1-0-2-0-1-')
+    ],
+    // Rolling 16th-note square-wave chord arpeggio [0,1,2,1]
+    arpPats: [
+      P('0123012301230123'),
+      P('0123012301230231')
+    ],
+    // 8-bar signature A-minor pentatonic triangle melody on [0, 3, 6, 10, 12] groove!
+    melA: [
+      [0,12,3,0], [3,15,3,0], [6,19,4,0], [10,17,2,0], [12,22,4,0],
+      [16,15,3,0], [19,17,3,0], [22,12,4,0], [26,19,2,0], [28,24,4,0],
+      [32,19,3,0], [35,22,3,0], [38,15,4,0], [42,17,2,0], [44,19,4,0],
+      [48,22,3,0], [51,19,3,0], [54,17,4,0], [58,15,2,0], [60,12,4,0],
+      [64,12,3,0], [67,17,3,0], [70,22,4,0], [74,19,2,0], [76,24,4,0],
+      [80,15,3,0], [83,19,3,0], [86,17,4,0], [90,22,2,0], [92,19,4,0],
+      [96,24,3,0], [99,22,3,0], [102,19,4,0], [106,15,2,0], [108,17,4,0],
+      [112,19,3,0], [115,22,3,0], [118,24,4,0], [122,22,2,0], [124,19,4,0]
+    ],
+    // 8-bar soaring climax cracktro pentatonic lead (octave shimmer on drop!)
+    solo: [
+      [0,24,3,0], [3,22,3,0], [6,19,4,0], [10,22,2,0], [12,24,4,0],
+      [16,27,3,0], [19,24,3,0], [22,22,4,0], [26,19,2,0], [28,24,4,0],
+      [32,27,3,0], [35,29,3,0], [38,24,4,0], [42,22,2,0], [44,24,4,0],
+      [48,22,3,0], [51,19,3,0], [54,17,4,0], [58,19,2,0], [60,22,4,0],
+      [64,24,3,0], [67,27,3,0], [70,29,4,0], [74,27,2,0], [76,24,4,0],
+      [80,22,3,0], [83,24,3,0], [86,19,4,0], [90,22,2,0], [92,24,4,0],
+      [96,29,3,0], [99,27,3,0], [102,24,4,0], [106,22,2,0], [108,19,4,0],
+      [112,24,6,0], [118,27,4,0], [122,29,6,0]
+    ],
+    vowels: ['AH', 'EE', 'OH', 'AI'],
+    sections: [
+      { bars: 4, chordOff: 0, name: 'BOOT SEQ',     energy: 0.44, drumSet: 0, kick: 0.95, snare: 0.70, hat: 0.85, bass: 0.90, arp: 0.88, lead: 0, solo: 0, pad: 0.65, filter: 0.48, roll: 0, drop: 0, tomFill: 1, lateKick: 0 },
+      { bars: 8, chordOff: 0, name: 'REPUBLIC',     energy: 0.82, drumSet: 0, kick: 1.00, snare: 1.00, hat: 0.95, bass: 1.00, arp: 0.95, lead: 1, solo: 0, pad: 0.75, filter: 0.80, roll: 0, drop: 0, tomFill: 1 },
+      { bars: 4, chordOff: 0, name: 'STATIC FREE',  energy: 0.24, drumSet: 2, kick: 0.00, snare: 0.45, hat: 0.40, bass: 0.45, arp: 1.00, lead: 0, solo: 0, pad: 1.00, filter: 0.36, roll: 0, drop: 0, tomFill: 0 },
+      { bars: 4, chordOff: 4, name: 'SIGNAL CRACK', energy: 0.90, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, arp: 1.00, lead: 0, solo: 0, pad: 0.85, filter: 0.94, roll: 1, drop: 0, tomFill: 1 },
+      { bars: 8, chordOff: 0, name: 'NO GRAVITY',   energy: 1.00, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, arp: 1.00, lead: 0, solo: 1, pad: 0.90, filter: 1.00, roll: 0, drop: 1, tomFill: 1 }
+    ],
+    lyrics: [
+      'WELCOME TO', 'REPUBLIC', 'OF SPEED', 'NEON IN',
+      'THE VEINS', 'GRAVITY', 'IS FREE', 'RELEASE',
+      'THE BRAKES', 'REWRITE', 'THE TRACK', 'FASTER THAN',
+      'PICTURES', 'FASTER THAN', 'SOUND', 'CRACK THE',
+      'SIGNAL', 'TURN IT UP', 'GREETINGS', 'FUTURE'
+    ]
   }
 ];

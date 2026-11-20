@@ -45,7 +45,101 @@ html, body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 16px 20px;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) calc(20px + env(safe-area-inset-left, 0px));
+}
+
+.hz-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 4px;
+  z-index: 12;
+  pointer-events: none;
+  background: repeating-linear-gradient(-45deg, #ff5a00 0 8px, #0a0a10 8px 16px);
+  background-size: 22.6px 22.6px;
+  opacity: 0.78;
+  animation: hzMove 1.1s linear infinite;
+}
+.hz-top { top: 0; }
+.hz-bot { bottom: 0; animation-direction: reverse; }
+@keyframes hzMove { to { background-position: 22.6px 0; } }
+
+.tdr-kana {
+  position: fixed;
+  left: calc(10px + env(safe-area-inset-left, 0px));
+  top: 50%;
+  transform: translateY(-50%) rotate(-90deg);
+  transform-origin: left center;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.36em;
+  color: rgba(0, 240, 255, 0.26);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.tdr-reg {
+  width: 14px;
+  height: 14px;
+  opacity: 0.65;
+  flex: none;
+}
+
+.tdr-badges {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+}
+
+.tdr-size {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
+}
+
+.beat-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.beat-lap {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: var(--cyan);
+  margin-right: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.beat-seg {
+  width: 7px;
+  height: 4px;
+  background: rgba(246, 244, 239, 0.2);
+}
+
+.beat-seg.on {
+  background: #ff5a00;
+}
+
+.start-nfo {
+  font: 10px/1.35 'Courier New', monospace;
+  color: #ff5a00;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 90, 0, 0.35);
+  padding: 8px 10px;
+  margin: 0 auto 14px;
+  text-align: left;
+  letter-spacing: 0.06em;
+  white-space: pre;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hz-bar { animation: none; }
 }
 
 .hud-top {

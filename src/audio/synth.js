@@ -783,6 +783,10 @@ export class SynthEngine {
         } else if (mode === 'retrowave') {
           const subFreq = midiToFreq(chord.b + (code === 2 ? 7 : 0));
           this._playSubSine45(t, stepDur * 3.85, subFreq, bassGain * 0.92);
+        } else if (mode === 'cracktro') {
+          const freq = midiToFreq(chord.b + off);
+          const sweep = 500 + ((step % 128) * 9.5) + sec.filter * 420;
+          this._playCracktroBass(t, stepDur * 1.9, freq, bassGain * 1.15, sweep);
         }
       }
     }
@@ -805,6 +809,9 @@ export class SynthEngine {
         } else if (mode === 'retrowave') {
           const semi = chord.a[idx % 4] + (idx >= 4 ? 12 : 0);
           this._playGlassBellArp(t, stepDur * 1.05, midiToFreq(arpBase + semi), sec.arp * 0.088, s16 % 2 ? 0.36 : -0.36);
+        } else if (mode === 'cracktro') {
+          const semi = chord.a[idx % 4];
+          this._playCracktroArp(t, stepDur * 0.88, midiToFreq(arpBase + 12 + semi), sec.arp * 0.092, s16 % 2 ? 0.34 : -0.34);
         }
       }
     }
@@ -961,6 +968,7 @@ export class SynthEngine {
     const cfg = mode === 'breakbeat' ? [150, 45, 0.062, 0.95, 0.003, 0.25]
       : mode === 'darksynth' ? [178, 44, 0.040, 0.98, 0.002, 0.165]
       : mode === 'acid' ? [165, 48, 0.048, 0.96, 0.002, 0.19]
+      : mode === 'cracktro' ? [160, 42, 0.075, 0.96, 0.002, 0.24]
       : [128, 48, 0.052, 0.84, 0.004, 0.21];
     const osc = this._osc('sine', cfg[0], t, t + 0.26);
     osc.frequency.exponentialRampToValueAtTime(cfg[1], t + cfg[2]);
@@ -1539,6 +1547,45 @@ export class SynthEngine {
   }
 
   // =========================================================================
+  // TRACK 06 RACK (GRAVITY LEAGUE): Sweeping Octave-Jump Sawtooth Bass,
+  // 16th-Note Square Chord Arp, Classic Pentatonic Triangle Cracktro Lead
+  // =========================================================================
+
+  _playCracktroBass(t, dur, freq, gain, cutoff) {
+    const stop = t + dur + 0.02;
+    const lp = this._flt('lowpass', Math.min(2600, cutoff), 1.8, t);
+    lp.frequency.exponentialRampToValueAtTime(Math.max(220, cutoff * 0.45), t + dur);
+    const g = this._env(gain, t, 0.005, dur);
+    this._osc('sawtooth', freq, t, stop, -6).connect(lp);
+    this._osc('sawtooth', freq, t, stop, 6).connect(lp);
+    const subG = this._gain(0.45);
+    this._osc('sine', freq, t, stop).connect(subG); subG.connect(g);
+    lp.connect(g); g.connect(this.pumpBus); g.connect(this.subTapBus);
+  }
+
+  _playCracktroArp(t, dur, freq, gain, panVal) {
+    const lp = this._flt('lowpass', 2600, 1.0, t);
+    const g = this._env(gain, t, 0.004, dur);
+    const pan = this._pan(panVal);
+    this._osc('square', freq, t, t + dur + 0.02).connect(lp);
+    lp.connect(g); g.connect(pan);
+    pan.connect(this.mixBus); pan.connect(this.delayIn);
+  }
+
+  _playCracktroLead(t, dur, freq, gain, isDrop) {
+    const stop = t + dur + 0.04;
+    const lp = this._flt('lowpass', 3500, 1.1, t);
+    const g = this._env(gain, t, 0.006, dur, 0.72, 0.65);
+    this._osc('triangle', freq, t, stop, -4).connect(lp);
+    this._osc('triangle', freq, t, stop, 4).connect(lp);
+    if (isDrop) {
+      const shG = this._gain(0.26);
+      this._osc('sine', freq * 2.0, t, stop).connect(shG); shG.connect(lp);
+    }
+    lp.connect(g); g.connect(this.mixBus); g.connect(this.delayIn); g.connect(this.reverbIn);
+  }
+
+  // =========================================================================
   // MODE LEAD DISPATCHER (ZERO SHARED GENERIC PATCHES ACROSS TRACKS!)
   // =========================================================================
 
@@ -1555,6 +1602,8 @@ export class SynthEngine {
       this._playKawaiiChipVocal(t, dur, freq, 0.44, phKey, cons, isDrop > 0);
     } else if (mode === 'acid') {
       this._playFmRaveLead(t, dur, freq, isDrop ? 0.16 : 0.13);
+    } else if (mode === 'cracktro') {
+      this._playCracktroLead(t, dur, freq, isDrop ? 0.28 : 0.23, isDrop > 0);
     } else {
       this._playPopRetrowaveVocal(t, dur, freq, 0.47, slide, phKey, cons, isDrop > 0);
     }

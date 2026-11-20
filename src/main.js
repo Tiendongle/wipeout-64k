@@ -148,6 +148,8 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === 'm' || e.key === 'M') {
     synth.setMuted(!synth.muted);
     hud.setTrackState(synth.trackIndex, synth.playing, synth.muted);
+  } else if (e.key === 'g' || e.key === 'G') {
+    renderer.glitchOn = !renderer.glitchOn;
   }
 });
 

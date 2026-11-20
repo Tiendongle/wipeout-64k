@@ -17,6 +17,7 @@ import {
   SHIP_VS, SHIP_FS,
   BEAM_VS, BEAM_FS,
   QUAD_VS, QUAD_FS,
+  SPARK_VS, SPARK_FS,
   POST_VS, BLOOM_EXTRACT_FS, BLUR_FS, RADIAL_BLOOM_FS, DOF_COMPOSITE_FS
 } from './shaders.js';
 import {
@@ -52,6 +53,7 @@ export class Renderer {
     this.shipProg = createProgram(gl, SHIP_VS, SHIP_FS);
     this.beamProg = createProgram(gl, BEAM_VS, BEAM_FS);
     this.quadProg = createProgram(gl, QUAD_VS, QUAD_FS);
+    this.sparkProg = createProgram(gl, SPARK_VS, SPARK_FS);
     this.bloomExtProg = createProgram(gl, POST_VS, BLOOM_EXTRACT_FS);
     this.blurProg = createProgram(gl, POST_VS, BLUR_FS);
     this.radialBloomProg = createProgram(gl, POST_VS, RADIAL_BLOOM_FS);
@@ -66,13 +68,14 @@ export class Renderer {
     this.u = {
       sky: loc(this.skyProg, ['uAspect', 'uTanHalfFov', 'uWorldYaw', 'uCamRight', 'uCamUp', 'uCamForward', 'uBeat', 'uTime']),
       track: loc(this.trackProg, ['uView', 'uProj', 'uBeat', 'uAccent', 'uMaxDepth', 'uShipPos', 'uStabFlash', 'uRasterMode', 'uStepPulse', 'uTime', 'uPads[0]']),
-      quad: loc(this.quadProg, ['uView', 'uProj', 'uMaxDepth', 'uAlphaCut', 'uTex']),
+      quad: loc(this.quadProg, ['uView', 'uProj', 'uMaxDepth', 'uAlphaCut', 'uTex', 'uLyricMode', 'uAccent']),
+      spark: loc(this.sparkProg, ['uView', 'uProj', 'uHeight', 'uAccent']),
       ship: loc(this.shipProg, ['uModel', 'uView', 'uProj', 'uCamPos', 'uBeamColor', 'uThrust', 'uMaxDepth']),
       beam: loc(this.beamProg, ['uView', 'uProj', 'uBeamColor', 'uIntensity', 'uTime', 'uMaxDepth']),
       bloomExt: loc(this.bloomExtProg, ['uScene']),
       blur: loc(this.blurProg, ['uTex', 'uDir']),
       radialBloom: loc(this.radialBloomProg, ['uTex', 'uCenter', 'uStrength']),
-      dof: loc(this.dofProg, ['uScene', 'uDepth', 'uBloom', 'uTexel', 'uFocusDepth', 'uDofStrength', 'uBloomStrength', 'uSpeedBlur', 'uBlurCenter', 'uShipUv', 'uRasterMode', 'uStepPulse'])
+      dof: loc(this.dofProg, ['uScene', 'uDepth', 'uBloom', 'uTexel', 'uFocusDepth', 'uDofStrength', 'uBloomStrength', 'uSpeedBlur', 'uBlurCenter', 'uShipUv', 'uRasterMode', 'uStepPulse', 'uGlitch', 'uTime'])
     };
     this._tanHalfFov = Math.tan(FOV_RAD * 0.5);
     this._padData = new Float32Array(32);
@@ -128,6 +131,18 @@ export class Renderer {
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
     gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 24, 12);
     gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 24, 20);
+
+    // --- Additive Speed-Pad / Launch Exhaust Sparks (zero-alloc 96-particle pool!) ---
+    this._sparkCap = 96;
+    this._sparks = new Float32Array(96 * 7); // [x, y, z, vx, vy, vz, life]
+    this._sparkVerts = new Float32Array(96 * 4); // [x, y, z, life]
+    this._sparkHead = 0;
+    this.sparkVao = gl.createVertexArray();
+    this.sparkVbo = gl.createBuffer();
+    gl.bindVertexArray(this.sparkVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.sparkVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, this._sparkVerts.byteLength, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 16, 0);
     gl.bindVertexArray(null);
 
     // Pre-baked GPU textures
@@ -154,10 +169,11 @@ export class Renderer {
     // Reusable sample scratch
     this._tmpSample = {};
 
-    // Track 3 onStep pulse decay state & smooth boost-ramp radial blur state
+    // Track 3 onStep pulse decay state, smooth boost-ramp radial blur & G-key glitch toggle
     this.stepPulse = 0;
     this._speedFilter = 0;
     this._baseKph = 580;
+    this.glitchOn = false;
     this._blurCx = 0.5;
     this._blurCy = 0.5;
     this._shipU = 0.5;
@@ -232,7 +248,7 @@ export class Renderer {
     mat4Perspective(this.projMat, FOV_RAD, w / h, 0.5, MAX_DEPTH + 40);
   }
 
-  _pushQuad(buf, o, cx, cy, cz, rx, ry, rz, ux, uy, uz, halfW, halfH, u0, v0, u1, v1, glow) {
+  _pushQuad(buf, o, cx, cy, cz, rx, ry, rz, ux, uy, uz, halfW, halfH, u0, v0, u1, v1, glow, glowR = glow) {
     const rwx = rx * halfW, rwy = ry * halfW, rwz = rz * halfW;
     const uhx = ux * halfH, uhy = uy * halfH, uhz = uz * halfH;
 
@@ -242,10 +258,10 @@ export class Renderer {
     const tlx = cx - rwx + uhx, tly = cy - rwy + uhy, tlz = cz - rwz + uhz;
 
     buf[o++] = blx; buf[o++] = bly; buf[o++] = blz; buf[o++] = u0; buf[o++] = v1; buf[o++] = glow;
-    buf[o++] = brx; buf[o++] = bry; buf[o++] = brz; buf[o++] = u1; buf[o++] = v1; buf[o++] = glow;
-    buf[o++] = trx; buf[o++] = try_; buf[o++] = trz; buf[o++] = u1; buf[o++] = v0; buf[o++] = glow;
+    buf[o++] = brx; buf[o++] = bry; buf[o++] = brz; buf[o++] = u1; buf[o++] = v1; buf[o++] = glowR;
+    buf[o++] = trx; buf[o++] = try_; buf[o++] = trz; buf[o++] = u1; buf[o++] = v0; buf[o++] = glowR;
     buf[o++] = blx; buf[o++] = bly; buf[o++] = blz; buf[o++] = u0; buf[o++] = v1; buf[o++] = glow;
-    buf[o++] = trx; buf[o++] = try_; buf[o++] = trz; buf[o++] = u1; buf[o++] = v0; buf[o++] = glow;
+    buf[o++] = trx; buf[o++] = try_; buf[o++] = trz; buf[o++] = u1; buf[o++] = v0; buf[o++] = glowR;
     buf[o++] = tlx; buf[o++] = tly; buf[o++] = tlz; buf[o++] = u0; buf[o++] = v0; buf[o++] = glow;
     return o;
   }
@@ -316,7 +332,7 @@ export class Renderer {
     return o / 6;
   }
 
-  _buildLyrics(track, ship, dt) {
+  _buildLyrics(track, ship, music, dt) {
     if (!this.lyricAtlas) return 0;
     let o = 0;
     const fr = this._tmpSample;
@@ -335,25 +351,83 @@ export class Renderer {
 
     for (let i = 0; i < this.activeLyrics.length; i++) {
       const l = this.activeLyrics[i];
-      if (o + 36 > this.quadBuf.length) break;
+      if (o + 108 > this.quadBuf.length) break;
       const uv = this.lyricAtlas.map.get(l.word);
       if (!uv) continue;
       if (l.s > track.dist + AHEAD_SEGS * SEG_LEN - 10) continue;
 
-      track.sampleAt(l.s, fr);
       const distToShip = Math.abs(l.s - ship.worldS);
-      const glow = Math.max(0.15, Math.exp(-distToShip * 0.045) * 1.15);
+      const pop = 1.0 + (distToShip < 38.0 ? music.beatPulse * 0.14 : 0.0);
+      const prog = Math.max(0.05, Math.min(1.15, 1.08 - (l.s - ship.worldS) / 70.0));
 
+      // 2 faint trailing karaoke echo ghosts behind the main word
+      for (let g = 2; g >= 1; g--) {
+        track.sampleAt(l.s + g * 2.6, fr);
+        o = this._pushQuad(
+          this.quadBuf, o,
+          fr.x + fr.rx * l.lat + fr.ux * l.height,
+          fr.y + fr.ry * l.lat + fr.uy * l.height,
+          fr.z + fr.rz * l.lat + fr.uz * l.height,
+          fr.rx, fr.ry, fr.rz, fr.ux, fr.uy, fr.uz,
+          4.6 * pop, 1.72 * pop, uv.u0, uv.v0, uv.u1, uv.v1, -9.0
+        );
+      }
+
+      // Main word with hardware-interpolated left-to-right karaoke fill sweep (glowL = prog, glowR = prog - 1)
+      track.sampleAt(l.s, fr);
       o = this._pushQuad(
         this.quadBuf, o,
         fr.x + fr.rx * l.lat + fr.ux * l.height,
         fr.y + fr.ry * l.lat + fr.uy * l.height,
         fr.z + fr.rz * l.lat + fr.uz * l.height,
         fr.rx, fr.ry, fr.rz, fr.ux, fr.uy, fr.uz,
-        4.6, 1.72, uv.u0, uv.v0, uv.u1, uv.v1, glow
+        4.6 * pop, 1.72 * pop, uv.u0, uv.v0, uv.u1, uv.v1, prog, prog - 1.0
       );
     }
     return o / 6;
+  }
+
+  _updateSparks(track, ship, dt) {
+    const sp = this._sparks;
+    const cap = this._sparkCap;
+    if (ship.padBurst > 0) {
+      const count = ship.padBurst === 2 ? 36 : 20;
+      const pos = ship.pos, r = ship.right, u = ship.up, f = ship.forward;
+      for (let k = 0; k < count; k++) {
+        const side = (k & 1) ? 0.58 : -0.58;
+        const base = this._sparkHead * 7;
+        this._sparkHead = (this._sparkHead + 1) % cap;
+        const spreadR = (Math.random() - 0.5) * 9.0;
+        const spreadU = (Math.random() - 0.35) * 6.5;
+        const backV = 24.0 + Math.random() * 28.0 + (ship.padBurst === 2 ? 14.0 : 0.0);
+        sp[base]     = pos[0] + r[0] * side + u[0] * 0.12 - f[0] * 2.4;
+        sp[base + 1] = pos[1] + r[1] * side + u[1] * 0.12 - f[1] * 2.4;
+        sp[base + 2] = pos[2] + r[2] * side + u[2] * 0.12 - f[2] * 2.4;
+        sp[base + 3] = r[0] * spreadR + u[0] * spreadU - f[0] * backV;
+        sp[base + 4] = r[1] * spreadR + u[1] * spreadU - f[1] * backV;
+        sp[base + 5] = r[2] * spreadR + u[2] * spreadU - f[2] * backV;
+        sp[base + 6] = 0.75 + Math.random() * 0.25;
+      }
+    }
+    let active = 0;
+    const v = this._sparkVerts;
+    const dsCam = track.speed * dt;
+    const cf = track.camForward;
+    for (let i = 0; i < cap; i++) {
+      const b = i * 7;
+      let life = sp[b + 6];
+      if (life <= 0) continue;
+      life -= dt * 2.2;
+      sp[b + 6] = life;
+      if (life <= 0) continue;
+      sp[b]     += sp[b + 3] * dt - cf.x * dsCam * 0.45;
+      sp[b + 1] += sp[b + 4] * dt - cf.y * dsCam * 0.45;
+      sp[b + 2] += sp[b + 5] * dt - cf.z * dsCam * 0.45;
+      const o = active * 4;
+      v[o] = sp[b]; v[o + 1] = sp[b + 1]; v[o + 2] = sp[b + 2]; v[o + 3] = life;
+      active++;
+    }
+    return active;
   }
 
   render(track, ship, music, trackMeta, dt, nowSec) {
@@ -461,6 +535,8 @@ export class Renderer {
       gl.uniformMatrix4fv(U.quad.uProj, false, this.projMat);
       gl.uniform1f(U.quad.uMaxDepth, MAX_DEPTH);
       gl.uniform1f(U.quad.uAlphaCut, 0.5);
+      gl.uniform1f(U.quad.uLyricMode, 0.0);
+      gl.uniform3fv(U.quad.uAccent, beamCol);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.billboardAtlas.tex);
       gl.uniform1i(U.quad.uTex, 0);
@@ -482,8 +558,8 @@ export class Renderer {
     gl.bindVertexArray(this.shipVao);
     gl.drawArrays(gl.TRIANGLES, 0, this.shipVertCount);
 
-    // 1E. 3D Racing Karaoke Lyric Banners
-    const lyricVertCount = this._buildLyrics(track, ship, dt);
+    // 1E. 3D Racing Karaoke Lyric Banners (Progressive Fill + Beat Pop + Echo Ghosts!)
+    const lyricVertCount = this._buildLyrics(track, ship, music, dt);
     if (lyricVertCount > 0) {
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -493,6 +569,8 @@ export class Renderer {
       gl.uniformMatrix4fv(U.quad.uProj, false, this.projMat);
       gl.uniform1f(U.quad.uMaxDepth, MAX_DEPTH);
       gl.uniform1f(U.quad.uAlphaCut, 0.05);
+      gl.uniform1f(U.quad.uLyricMode, 1.0);
+      gl.uniform3fv(U.quad.uAccent, beamCol);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.lyricAtlas.tex);
       gl.uniform1i(U.quad.uTex, 0);
@@ -502,7 +580,7 @@ export class Renderer {
       gl.drawArrays(gl.TRIANGLES, 0, lyricVertCount);
     }
 
-    // 1F. Continuous Bright Twin Thruster Beams
+    // 1F. Continuous Bright Twin Thruster Beams + Speed-Pad Additive Exhaust Spark Bursts
     const beamVertCount = writeBeamGeometry(track, ship, this.beamBuf);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE);
@@ -519,6 +597,19 @@ export class Renderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.beamVbo);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.beamBuf.subarray(0, beamVertCount * BEAM_FLOATS_PER_VERT));
     gl.drawArrays(gl.TRIANGLES, 0, beamVertCount);
+
+    const sparkCount = this._updateSparks(track, ship, dt);
+    if (sparkCount > 0) {
+      gl.useProgram(this.sparkProg);
+      gl.uniformMatrix4fv(U.spark.uView, false, this.viewMat);
+      gl.uniformMatrix4fv(U.spark.uProj, false, this.projMat);
+      gl.uniform1f(U.spark.uHeight, this.height);
+      gl.uniform3fv(U.spark.uAccent, beamCol);
+      gl.bindVertexArray(this.sparkVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.sparkVbo);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, this._sparkVerts.subarray(0, sparkCount * 4));
+      gl.drawArrays(gl.POINTS, 0, sparkCount);
+    }
 
     // =========================================================================
     // PASS 2: Quarter-Res Bloom Extract & Separable Gaussian Blur
@@ -620,6 +711,9 @@ export class Renderer {
     gl.uniform2f(U.dof.uShipUv, this._shipU, this._shipV);
     gl.uniform1f(U.dof.uRasterMode, music.rasterMode || 0);
     gl.uniform1f(U.dof.uStepPulse, this.stepPulse);
+    const glitchAmt = this.glitchOn ? 1.0 : ((music.dropFlash || 0) > 0.72 ? ((music.dropFlash - 0.72) * 3.5) : 0.0);
+    gl.uniform1f(U.dof.uGlitch, glitchAmt);
+    gl.uniform1f(U.dof.uTime, nowSec);
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
