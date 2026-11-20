@@ -217,10 +217,11 @@ void main() {
 
     col *= ndl;
 
-    // Ground-effect contact shadow directly beneath the Wipeout craft (ref Images 2 & 3)
+    // Soft altitude-aware ground-effect contact shadow (fades smoothly as craft floats over crests/jumps!)
     vec3 dp = vWorldPos - uShipPos;
-    float shadowDist = length(vec2(dp.x * 0.55, dp.z * 0.30));
-    float shadow = 1.0 - 0.58 * exp(-shadowDist * shadowDist * 1.15) * step(abs(dp.y), 2.5);
+    float altFade = smoothstep(4.6, 0.5, abs(dp.y));
+    float shadowDist = length(vec2(dp.x * 0.52, dp.z * 0.28)) / (1.0 + abs(dp.y) * 0.16);
+    float shadow = 1.0 - 0.56 * exp(-shadowDist * shadowDist * 1.15) * altFade;
     col *= shadow;
   } else if (vMat < 1.5) {
     // Side Chevron Barriers (iconic Wipeout diagonal hazard chevrons)

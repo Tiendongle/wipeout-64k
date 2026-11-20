@@ -59,6 +59,9 @@ export class Track {
     this._lookSample = {};
     this._camAir = { inAir: 0, airY: 0, airPitch: 0, isMega: 0 };
     this._lookAir = { inAir: 0, airY: 0, airPitch: 0, isMega: 0 };
+    this._camLift = 0;
+    this._lookLift = 0;
+    this._dt = 0.016;
 
     this._ensureGenerated(0);
     this._rebuildSamples();
@@ -258,6 +261,7 @@ export class Track {
   }
 
   update(dt, music, catchUp = 0) {
+    this._dt = dt;
     // Smooth mouse steering input (Track 5 padLFO modulates smooth drift damping!)
     const steerDamp = music.mode === 'retrowave' ? (2.6 + (music.padLFO || 0.5) * 2.2) : 4.2;
     this.mouseSmooth += (this.mouseTarget - this.mouseSmooth) * Math.min(1, dt * steerDamp);
@@ -406,15 +410,17 @@ export class Track {
     const lookAir = this.getAirState(this.dist + 28.0, this._lookAir);
     const camLat = this.camShakeX + this.camDrift * 0.45;
     const camUpOff = 4.4 + this.camShakeY + this.camDrift * 0.18;
-    // Lift camera cleanly in world +Y above the soaring craft so it NEVER drops below the landing deck lip!
     const camAirLift = Math.max(camAir.airY * 1.08, lookAir.airY * 0.62);
+    const lookAirLift = lookAir.airY * 0.92;
+    this._camLift += (camAirLift - this._camLift) * Math.min(1, this._dt * (camAirLift > this._camLift ? 14.0 : 5.8));
+    this._lookLift += (lookAirLift - this._lookLift) * Math.min(1, this._dt * (lookAirLift > this._lookLift ? 14.0 : 5.8));
     this.camPos.x = camFrame.x + camFrame.ux * camUpOff + camFrame.rx * camLat;
-    this.camPos.y = camFrame.y + camFrame.uy * camUpOff + camFrame.ry * camLat + camAirLift;
+    this.camPos.y = camFrame.y + camFrame.uy * camUpOff + camFrame.ry * camLat + this._camLift;
     this.camPos.z = camFrame.z + camFrame.uz * camUpOff + camFrame.rz * camLat;
 
-    // Track the soaring craft dead-center across the entire jump arc!
+    // Track the soaring craft dead-center across the entire jump arc and plush flare landing!
     let lx = (lookFrame.x + lookFrame.ux * 2.2) - this.camPos.x;
-    let ly = (lookFrame.y + lookFrame.uy * 2.2 + lookAir.airY * 0.92) - this.camPos.y;
+    let ly = (lookFrame.y + lookFrame.uy * 2.2 + this._lookLift) - this.camPos.y;
     let lz = (lookFrame.z + lookFrame.uz * 2.2) - this.camPos.z;
     const ll = Math.hypot(lx, ly, lz) || 1;
     this.camForward.x = lx / ll;

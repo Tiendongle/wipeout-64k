@@ -13,13 +13,14 @@ export class Ship {
     this.lat = 0.0;
     this.latVel = 0.0;
 
-    // Ground-effect hover clearance (tight, low-pressure hug over bumps)
-    this.hoverH = 0.82;
+    // Ground-effect hover clearance (buoyant magnetic bed-of-air cushion!)
+    this.hoverH = 0.92;
     this.hoverVel = 0.0;
 
     // Orientation smoothing
     this.roll = 0.0;
     this.pitchOffset = 0.0;
+    this.pitchSmooth = 0.0;
 
     // Current world-space transform (relative to camera origin)
     this.worldS = 14.0;
@@ -49,7 +50,7 @@ export class Ship {
     // Reusable sample objects (zero per-frame allocations!)
     this._sample = {};
     this._lookSample = {};
-    this._prevSlope = 0;
+    this._prevRoadVel = 0;
     this._lastKickId = 0;
     this._lastDropId = 0;
   }
@@ -140,34 +141,57 @@ export class Ship {
     this.latVel += latForce * dt;
     this.lat += this.latVel * dt;
 
-    // 3. Strong underpressure / ground-effect suspension + soaring anti-grav glide over disconnected jumps!
+    // 3. Buoyant magnetic bed-of-air suspension + crest airtime + plush anti-grav landing!
     const air = track.getAirState(this.worldS, this._airState);
     this.inAir = air.inAir;
     if (this._wasInAir && !this.inAir) {
-      // Gentle ground-effect cushion settle as craft flares onto landing runway!
-      this.hoverVel = -2.4;
-      this.thrust = Math.max(this.thrust, 1.45);
+      // Soft plush air-cushion settle on landing (zero harsh slam!)
+      this.hoverVel = Math.min(this.hoverVel, -1.05);
+      this.thrust = Math.max(this.thrust, 1.38);
     }
     this._wasInAir = this.inAir;
-    // Follow launch fast, float down smoothly on anti-grav glide (never snaps down!)
-    const airRate = air.airY > this.airH ? 18.0 : 9.5;
+    // Climb crisply off ramps, float down softly onto the runway air bed
+    const airRate = air.airY > this.airH ? 14.0 : 5.2;
     this.airH += (air.airY - this.airH) * Math.min(1, dt * airRate);
-    this.airPitch += (air.airPitch - this.airPitch) * Math.min(1, dt * 8.5);
+    this.airPitch += (air.airPitch - this.airPitch) * Math.min(1, dt * 6.5);
 
-    const slopeDelta = (frame.pitch - this._prevSlope) / Math.max(0.008, dt);
-    this._prevSlope = frame.pitch;
-    const bumpCompression = this.inAir ? 0 : Math.max(-0.16, Math.min(0.16, -slopeDelta * 0.04));
-    const antiGravFloat = music.mode === 'retrowave' ? ((music.subBassEnvelope || 0) * 0.12) : 0.0;
-    const targetH = 0.78 + bumpCompression + antiGravFloat + Math.sin(nowSec * 22.0) * 0.018;
-    const hForce = (targetH - this.hoverH) * 85.0 - this.hoverVel * 16.0;
+    // Real inertial crest airtime: when road slopes down rapidly over a crest, craft lifts off on a cushion of air!
+    const effSpeed = track.speed + Math.max(0, this.relVel);
+    const roadVel = frame.fy * effSpeed;
+    const dRoadVel = roadVel - this._prevRoadVel;
+    this._prevRoadVel = roadVel;
+    if (!this.inAir && this.airH < 0.35) {
+      if (dRoadVel < 0) {
+        // Road dropping away over a fast crest -> natural buoyant lift-off!
+        this.hoverVel += Math.min(7.5, -dRoadVel * 0.56);
+      } else {
+        // Valley compression -> gentle cushion dip
+        this.hoverVel -= Math.min(3.6, dRoadVel * 0.24);
+      }
+    }
+
+    const antiGravFloat = music.mode === 'retrowave' ? ((music.subBassEnvelope || 0) * 0.18) : 0.0;
+    const restH = 0.94 + antiGravFloat + Math.sin(nowSec * 12.0) * 0.025;
+    const hErr = restH - this.hoverH;
+    // Asymmetric bed-of-air spring: floaty gentle gravity above restH, plush progressive magnetic cushion below!
+    let hForce;
+    if (hErr < 0) {
+      // Floating above the air bed (crest airtime / landing flare) -> silky weightless hang!
+      hForce = hErr * 14.5 - this.hoverVel * 3.4;
+    } else {
+      // Compressing into the magnetic cushion -> soft pillowy catch that never scrapes the tarmac!
+      hForce = hErr * (36.0 + hErr * 48.0) - this.hoverVel * 7.8;
+    }
     this.hoverVel += hForce * dt;
-    this.hoverH = Math.max(0.46, Math.min(1.06, this.hoverH + this.hoverVel * dt));
+    this.hoverH = Math.max(0.44, Math.min(5.2, this.hoverH + this.hoverVel * dt));
 
-    // 4. Roll into corners & lateral velocity; pitch arcs smoothly over disconnected skyway jumps!
+    // 4. Roll into corners & lateral velocity; smooth aerodynamic hull pitch floats over crests & landings!
     const targetRoll = -frame.curv * 42.0 - this.latVel * 0.09;
-    this.roll += (targetRoll - this.roll) * Math.min(1, dt * 8.0);
-    const targetPitchOff = -Math.max(0, this.relVel) * 0.0022 + this.airPitch;
-    this.pitchOffset += (targetPitchOff - this.pitchOffset) * Math.min(1, dt * 10.0);
+    this.roll += (targetRoll - this.roll) * Math.min(1, dt * 7.5);
+    const floatPitch = Math.max(-0.10, Math.min(0.15, this.hoverVel * 0.018));
+    const targetAbsPitch = frame.pitch + this.airPitch + floatPitch - Math.max(0, this.relVel) * 0.0018;
+    this.pitchSmooth += (targetAbsPitch - this.pitchSmooth) * Math.min(1, dt * (this.inAir ? 4.8 : 6.2));
+    this.pitchOffset = Math.max(-0.32, Math.min(0.32, this.pitchSmooth - frame.pitch));
 
     // Build ship world basis from track frame + local roll + tiny pitchOffset
     const cr = Math.cos(this.roll);
