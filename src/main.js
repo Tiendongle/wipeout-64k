@@ -90,14 +90,46 @@ const hud = new Hud(hudRoot, {
   }
 });
 
-// Mouse / touch X shapes the oncoming track curvature smoothly (zero warping!)
+// Mouse & mobile touch X shape the oncoming track curvature smoothly (zero warping!)
 function handlePointer(clientX) {
   const norm = (clientX / Math.max(1, window.innerWidth)) * 2 - 1;
   track.setMouseX(norm);
 }
 
-window.addEventListener('pointermove', (e) => handlePointer(e.clientX), { passive: true });
-window.addEventListener('pointerdown', (e) => handlePointer(e.clientX), { passive: true });
+function isHudButton(e) {
+  return !!(e.target && e.target.closest && e.target.closest('button'));
+}
+
+window.addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'touch' && isHudButton(e)) return;
+  handlePointer(e.clientX);
+}, { passive: true });
+
+window.addEventListener('pointerdown', (e) => {
+  if (isHudButton(e)) return;
+  handlePointer(e.clientX);
+}, { passive: true });
+
+// Dedicated touchstart/touchmove/touchend for rock-solid iOS Safari & Android Chrome steering
+canvas.addEventListener('touchstart', (e) => {
+  if (e.touches.length > 0) {
+    e.preventDefault();
+    handlePointer(e.touches[0].clientX);
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+  if (e.touches.length > 0) {
+    e.preventDefault();
+    handlePointer(e.touches[0].clientX);
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', (e) => {
+  if (e.touches.length === 0) track.setMouseX(0);
+}, { passive: true });
+
+canvas.addEventListener('touchcancel', () => track.setMouseX(0), { passive: true });
 window.addEventListener('resize', () => renderer.resize(), { passive: true });
 
 window.addEventListener('keydown', (e) => {

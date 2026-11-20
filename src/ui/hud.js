@@ -63,7 +63,7 @@ export class Hud {
           <div class="start-kicker">THE DESIGNERS REPUBLIC // 64K DEMOSCENE</div>
           <div class="start-h1">WIPEOUT-64K</div>
           <div class="start-desc">
-            MOVE MOUSE LEFT / RIGHT TO SHAPE THE ONCOMING TRACK.<br>
+            MOVE MOUSE OR DRAG TOUCH LEFT / RIGHT TO SHAPE THE ONCOMING TRACK.<br>
             THE CRAFT DRIVES AUTONOMOUSLY WITH GROUND-EFFECT &amp; THRUST SURGE.
           </div>
           <button class="btn start-go" id="btnStart">ENGAGE SYNTH &amp; THRUST</button>
