@@ -154,10 +154,10 @@ export class Renderer {
     // Reusable sample scratch
     this._tmpSample = {};
 
-    // Track 3 onStep pulse decay state, acceleration-driven radial blur & toggleable trackside beacons (#4)
+    // Track 3 onStep pulse decay state, smooth boost-ramp radial blur & toggleable trackside beacons (#4)
     this.stepPulse = 0;
     this._speedFilter = 0;
-    this._lastKph = 580;
+    this._baseKph = 580;
     this.beaconsOn = true;
     this._blurCx = 0.5;
     this._blurCy = 0.5;
@@ -361,13 +361,13 @@ export class Renderer {
     const gl = this.gl;
     const U = this.u;
 
-    // Proportional acceleration-delta streaks: 0 at steady/coasting, light on small pads, explosive on mega-launches & drops!
-    const kphRate = Math.max(0, (ship.kph - this._lastKph) / Math.max(0.004, dt));
-    this._lastKph = ship.kph;
-    const relDelta = Math.max(0, (ship.relVel - 4.0) / 108.0);
-    const kphDelta = Math.max(0, (kphRate - 45.0) / 880.0);
-    const targetSpeedFilter = Math.min(1.35, relDelta * 0.85 + kphDelta * 0.65);
-    const sfRate = targetSpeedFilter > this._speedFilter ? 18.0 : 4.8;
+    // Smooth progressive boost-delta ramp: tracks rolling baseline KPH so streaks swell smoothly on acceleration & clear at steady/coasting speed (zero pulsing!)
+    const baseRate = ship.kph > this._baseKph ? 0.72 : 1.45;
+    this._baseKph += (ship.kph - this._baseKph) * Math.min(1, dt * baseRate);
+    const boostDelta = Math.max(0, (ship.kph - this._baseKph - 16) / 250);
+    const surgeDelta = Math.max(0, (ship.relVel - 8) / 135);
+    const targetSpeedFilter = Math.min(1.30, boostDelta * 0.95 + surgeDelta * 0.45);
+    const sfRate = targetSpeedFilter > this._speedFilter ? 3.2 : 1.8;
     this._speedFilter += (targetSpeedFilter - this._speedFilter) * Math.min(1, dt * sfRate);
     if (this._speedFilter < 0.008) this._speedFilter = 0;
 
