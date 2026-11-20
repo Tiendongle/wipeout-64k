@@ -70,7 +70,7 @@ export class Renderer {
       beam: loc(this.beamProg, ['uView', 'uProj', 'uBeamColor', 'uIntensity', 'uTime', 'uMaxDepth']),
       bloomExt: loc(this.bloomExtProg, ['uScene']),
       blur: loc(this.blurProg, ['uTex', 'uDir']),
-      dof: loc(this.dofProg, ['uScene', 'uDepth', 'uBloom', 'uTexel', 'uFocusDepth', 'uDofStrength', 'uBloomStrength', 'uSpeedBlur', 'uRasterMode', 'uStepPulse'])
+      dof: loc(this.dofProg, ['uScene', 'uDepth', 'uBloom', 'uTexel', 'uFocusDepth', 'uDofStrength', 'uBloomStrength', 'uSpeedBlur', 'uRasterMode', 'uStepPulse', 'uTime', 'uAccent'])
     };
     this._tanHalfFov = Math.tan(FOV_RAD * 0.5);
     this._padData = new Float32Array(32);
@@ -152,8 +152,9 @@ export class Renderer {
     // Reusable sample scratch
     this._tmpSample = {};
 
-    // Track 3 onStep pulse decay state
+    // Track 3 onStep pulse decay state & smoothed speed-surge filter
     this.stepPulse = 0;
+    this._speedFilter = 0;
 
     this.resize();
   }
@@ -352,8 +353,22 @@ export class Renderer {
     const gl = this.gl;
     const U = this.u;
 
-    // Dynamic warp-FOV: widens smoothly (64° -> 70.5°) as camera catches up in sustained surge!
-    const dynFov = FOV_RAD + (ship.catchUp || 0) * 0.115;
+    // True vehicle speed & forward-surge intensity (drives warp-FOV, radial speed filter & neon bloom!)
+    const speedNorm = Math.max(0, Math.min(1, (ship.kph - 560) / 620));
+    const surgeKick = Math.max(0, Math.min(1,
+      Math.max(0, ship.relVel) / 66 +
+      Math.max(0, ship.thrust - 0.62) * 0.42 +
+      (ship.catchUp || 0) * 0.34
+    ));
+    const modeBoost = music.mode === 'acid'
+      ? (music.filterCutoffNormalized || 0) * 0.24 + (music.accentTrigger || 0) * 0.20
+      : (music.dropFlash || 0) * 0.26 + (music.bassEnergy || 0) * 0.10;
+    const targetSpeedFilter = Math.min(1.25, speedNorm * 0.66 + surgeKick * 0.56 + modeBoost);
+    const sfRate = targetSpeedFilter > this._speedFilter ? 13.0 : 4.2;
+    this._speedFilter += (targetSpeedFilter - this._speedFilter) * Math.min(1, dt * sfRate);
+
+    // Dynamic warp-FOV: widens smoothly (64° -> ~73.5°) with camera catch-up & live surge speed!
+    const dynFov = FOV_RAD + (ship.catchUp || 0) * 0.115 + this._speedFilter * 0.048;
     const tanHalfFov = Math.tan(dynFov * 0.5);
     mat4Perspective(this.projMat, dynFov, this.width / this.height, 0.5, MAX_DEPTH + 40);
 
@@ -521,15 +536,17 @@ export class Renderer {
     const invBw = 1.0 / this.bloomFboA.w;
     const invBh = 1.0 / this.bloomFboA.h;
     for (let p = 0; p < 2; p++) {
-      const spread = p === 0 ? 1.25 : 2.6;
+      // Subtle anamorphic horizontal lens-glow stretch (1.5x wider horizontally than vertically!)
+      const spreadX = p === 0 ? 1.85 : 4.20;
+      const spreadY = p === 0 ? 1.25 : 2.80;
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomFboB.fbo);
       gl.bindTexture(gl.TEXTURE_2D, this.bloomFboA.tex);
-      gl.uniform2f(U.blur.uDir, spread * invBw, 0.0);
+      gl.uniform2f(U.blur.uDir, spreadX * invBw, 0.0);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
 
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomFboA.fbo);
       gl.bindTexture(gl.TEXTURE_2D, this.bloomFboB.tex);
-      gl.uniform2f(U.blur.uDir, 0.0, spread * invBh);
+      gl.uniform2f(U.blur.uDir, 0.0, spreadY * invBh);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
 
@@ -556,16 +573,16 @@ export class Renderer {
     gl.uniform1f(U.dof.uFocusDepth, focusDepth);
     const dofAmt = music.mode === 'retrowave' ? (0.76 + (music.padLFO || 0.5) * 0.16) : 0.82;
     gl.uniform1f(U.dof.uDofStrength, dofAmt);
-    const bloomAmt = 0.56 + music.kick * 0.14 + (music.dropFlash || 0) * 0.22 +
-      (music.stabPulse || 0) * 0.18 + (music.accentTrigger || 0) * 0.16 +
-      (music.mode === 'retrowave' ? (music.subBassEnvelope || 0) * 0.12 : 0);
+    const bloomAmt = 0.78 + music.kick * 0.18 + (music.dropFlash || 0) * 0.28 +
+      (music.stabPulse || 0) * 0.20 + (music.accentTrigger || 0) * 0.18 +
+      this._speedFilter * 0.22 + Math.max(0, ship.thrust - 0.55) * 0.16 +
+      (music.mode === 'retrowave' ? (music.subBassEnvelope || 0) * 0.16 : 0);
     gl.uniform1f(U.dof.uBloomStrength, bloomAmt);
-    const speedBlur = music.mode === 'acid'
-      ? Math.min(1.0, (music.filterCutoffNormalized || 0) * 0.65 + (music.accentTrigger || 0) * 0.45 + (ship.catchUp || 0) * 0.25)
-      : Math.min(0.85, (music.bassEnergy || 0) * 0.30 + (music.dropFlash || 0) * 0.30 + (ship.catchUp || 0) * 0.32);
-    gl.uniform1f(U.dof.uSpeedBlur, speedBlur);
+    gl.uniform1f(U.dof.uSpeedBlur, this._speedFilter);
     gl.uniform1f(U.dof.uRasterMode, music.rasterMode || 0);
     gl.uniform1f(U.dof.uStepPulse, this.stepPulse);
+    gl.uniform1f(U.dof.uTime, nowSec);
+    gl.uniform3fv(U.dof.uAccent, beamCol);
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }

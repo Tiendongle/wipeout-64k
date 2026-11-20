@@ -443,9 +443,13 @@ void main() {
   vec3 c = texture(uScene, vUv).rgb;
   float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
   float maxC = max(c.r, max(c.g, c.b));
-  float bright = max(lum, maxC * 0.85);
-  float knee = smoothstep(0.60, 1.02, bright);
-  outColor = vec4(c * knee, 1.0);
+  float minC = min(c.r, min(c.g, c.b));
+  float sat = maxC - minC;
+  // Selective neon-biased extraction: preserves sunset sky & crisp billboards while thrusters, rails & pads blaze!
+  float bright = max(lum * 0.96, maxC * 0.82 + sat * 0.42);
+  float knee = smoothstep(0.76, 1.02, bright);
+  vec3 vivid = mix(vec3(lum), c, 1.36);
+  outColor = vec4(max(vivid, vec3(0.0)) * (knee * knee * 1.24), 1.0);
 }`;
 
 export const BLUR_FS = `#version 300 es
@@ -476,6 +480,8 @@ uniform float uBloomStrength;
 uniform float uSpeedBlur;
 uniform float uRasterMode;
 uniform float uStepPulse;
+uniform float uTime;
+uniform vec3 uAccent;
 
 out vec4 outColor;
 
@@ -518,21 +524,51 @@ void main() {
 
   vec3 col = acc / wSum;
 
-  // Track 4 (filterCutoffNormalized + accentTrigger) & Track 1 high-speed radial speed blur!
-  if (uSpeedBlur > 0.01) {
-    vec2 rad = vUv - vec2(0.5, 0.54);
-    float edge = clamp(length(rad) * 1.35, 0.0, 1.0);
-    vec2 stepUv = rad * (0.018 * uSpeedBlur * edge);
-    vec3 rCol = (
-      texture(uScene, clamp(vUv - stepUv, vec2(0.001), vec2(0.999))).rgb +
-      texture(uScene, clamp(vUv - stepUv * 2.0, vec2(0.001), vec2(0.999))).rgb
-    ) * 0.5;
-    col = mix(col, rCol, 0.34 * uSpeedBlur * edge);
+  // Dynamic Phantom-Class Speed Filter: radial velocity blur + peripheral RGB dispersion + slipstream lines!
+  vec2 rad = vUv - vec2(0.5, 0.52);
+  float rDist = length(rad * vec2(1.0, 0.86));
+  float edge = smoothstep(0.15, 0.76, rDist);
+  if (uSpeedBlur > 0.015 && edge > 0.005) {
+    float sAmt = uSpeedBlur * edge;
+    vec2 stepUv = rad * (0.024 * sAmt);
+    vec3 rCol =
+      texture(uScene, clamp(vUv - stepUv * 0.55, vec2(0.001), vec2(0.999))).rgb * 0.34 +
+      texture(uScene, clamp(vUv - stepUv * 1.25, vec2(0.001), vec2(0.999))).rgb * 0.28 +
+      texture(uScene, clamp(vUv - stepUv * 2.15, vec2(0.001), vec2(0.999))).rgb * 0.22 +
+      texture(uScene, clamp(vUv - stepUv * 3.20, vec2(0.001), vec2(0.999))).rgb * 0.16;
+    col = mix(col, rCol, clamp(0.54 * sAmt, 0.0, 0.68));
+
+    // Subtle peripheral RGB chromatic dispersion on high-G surges
+    float ca = 0.0095 * sAmt * edge;
+    float rCh = texture(uScene, clamp(vUv + rad * ca, vec2(0.001), vec2(0.999))).r;
+    float bCh = texture(uScene, clamp(vUv - rad * ca, vec2(0.001), vec2(0.999))).b;
+    float caMix = clamp(0.42 * sAmt, 0.0, 0.45);
+    col.r = mix(col.r, rCh, caMix);
+    col.b = mix(col.b, bCh, caMix);
+
+    // Procedural radial slipstream speed-lines whipping past outer viewport edges
+    float lineVis = smoothstep(0.22, 1.05, uSpeedBlur) * smoothstep(0.26, 0.78, rDist);
+    if (lineVis > 0.01) {
+      float ang = atan(rad.y, rad.x);
+      float rayA = floor(ang * 22.0);
+      float hA = fract(sin(rayA * 127.1 + 311.7) * 43758.5453);
+      float thinA = smoothstep(0.42, 0.02, abs(fract(ang * 22.0) - 0.5));
+      float streakA = smoothstep(0.76, 0.99, fract(rDist * 2.2 - uTime * (4.8 + uSpeedBlur * 6.5) + hA * 17.0));
+
+      float rayB = floor(ang * 38.0 + 7.3);
+      float hB = fract(sin(rayB * 269.5 + 183.3) * 43758.5453);
+      float thinB = smoothstep(0.36, 0.02, abs(fract(ang * 38.0 + 7.3) - 0.5));
+      float streakB = smoothstep(0.82, 0.99, fract(rDist * 3.1 - uTime * (6.2 + uSpeedBlur * 8.2) + hB * 23.0));
+
+      float rays = (thinA * streakA * step(0.48, hA) + thinB * streakB * step(0.58, hB) * 0.75) * lineVis;
+      vec3 streakCol = mix(vec3(0.96, 0.99, 1.0), uAccent, 0.46);
+      col += streakCol * rays * (0.28 + 0.14 * uSpeedBlur);
+    }
   }
 
-  // Subtle restrained bloom composite
+  // Rich neon anamorphic bloom composite (energy-preserving soft knee prevents milky washout)
   vec3 bloom = texture(uBloom, vUv).rgb;
-  col += bloom * uBloomStrength;
+  col += bloom * uBloomStrength * (1.06 - min(col, vec3(1.0)) * 0.18);
 
   // Track 3 (Tracker Protocol) crisp retro demoscene CRT raster scanlines synced to onStep!
   if (uRasterMode > 0.01) {
@@ -540,12 +576,12 @@ void main() {
     col *= 1.0 - uRasterMode * (0.065 + 0.03 * uStepPulse) * (1.0 - scan);
   }
 
-  // Clean gentle filmic shoulder (preserves Wipeout color vibrancy)
-  col = col / (1.0 + col * 0.22);
+  // Clean gentle filmic shoulder (preserves Wipeout neon vibrancy)
+  col = col / (1.0 + col * 0.25);
 
-  // Very light edge vignette
+  // Dynamic speed tunnel vignette (deepens slightly at peak velocity)
   vec2 q = vUv - 0.5;
-  float vig = 1.0 - dot(q, q) * 0.28;
+  float vig = 1.0 - dot(q, q) * (0.28 + 0.18 * min(1.2, uSpeedBlur));
   col *= vig;
 
   outColor = vec4(col, 1.0);
