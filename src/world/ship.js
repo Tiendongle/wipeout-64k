@@ -13,9 +13,9 @@ export class Ship {
     this.lat = 0.0;
     this.latVel = 0.0;
 
-    // True Newtonian world-space vertical physics (heavy gravity + one-sided magnetic floor cushion!)
-    this.hoverH = 0.74;
-    this.worldY = 0.74;
+    // True Newtonian world-space vertical physics (weighty gravity + one-sided progressive air-cushion!)
+    this.hoverH = 0.84;
+    this.worldY = 0.84;
     this.vy = 0.0;
     this._yInit = false;
 
@@ -45,6 +45,7 @@ export class Ship {
     // Real physics flight-path wake history (48 samples, zero allocations!)
     this.inAir = 0;
     this._surf = { y: 0, slope: 0, hasRoad: 1, isRamp: 0 };
+    this._noseSurf = { y: 0, slope: 0, hasRoad: 1, isRamp: 0 };
     this._wakeCap = 48;
     this._wakeS = new Float32Array(48);
     this._wakeY = new Float32Array(48);
@@ -168,58 +169,71 @@ export class Ship {
     this.latVel += latForce * dt;
     this.lat += this.latVel * dt;
 
-    // 3. Heavy Newtonian vertical physics:
-    // High gravity (175) + ZERO gravity-cancellation above restH (one-sided magnetic floor cushion)
-    // + aerodynamic downforce on solid track so hills feel planted & jumps feel fast and weighty!
+    // 3. Weighty Newtonian vertical physics:
+    // - Nose-ahead surface sampling prevents the 4.95u needle nose & ventral fin from clipping into ramps!
+    // - Heavy gravity (135) with ZERO upward floatiness + progressive descent-only shock absorber for silky landings!
     const surf = track.getSurfaceAt(this.worldS, this._surf);
+    const noseSurf = track.getSurfaceAt(this.worldS + 4.8, this._noseSurf);
     const effSpeed = track.speed + Math.max(0, this.relVel);
+    // Use the full rising nose-ahead height when climbing a ramp so the 4.95u nose NEVER clips the deck!
+    const effGroundY = (surf.hasRoad && noseSurf.hasRoad && noseSurf.y > surf.y)
+      ? Math.max(surf.y, noseSurf.y - 0.12)
+      : surf.y;
+    const effSlope = (surf.hasRoad && noseSurf.hasRoad && noseSurf.slope > surf.slope)
+      ? (surf.slope * 0.55 + noseSurf.slope * 0.45)
+      : surf.slope;
+
     if (!this._yInit) {
       this._yInit = true;
-      this.worldY = surf.y + 0.74;
-      this.vy = surf.slope * effSpeed;
+      this.worldY = effGroundY + 0.84;
+      this.vy = effSlope * effSpeed;
     }
 
-    const GRAVITY = 175.0; // weighty Wipeout/F-Zero gravity — zero moon-float!
+    const GRAVITY = 135.0; // weighty Wipeout/F-Zero gravity — zero float, clean landing stroke!
     const antiGravFloat = music.mode === 'retrowave' ? ((music.subBassEnvelope || 0) * 0.10) : 0.0;
-    const restH = 0.74 + antiGravFloat + Math.sin(nowSec * 16.0) * 0.012;
-    const roadVy = surf.slope * effSpeed;
+    const restH = 0.84 + antiGravFloat + Math.sin(nowSec * 16.0) * 0.012;
+    const roadVy = effSlope * effSpeed;
 
-    // 4 substeps for rock-solid stiff magnetic cushion stability at any framerate
+    // 4 substeps for rock-solid progressive magnetic cushion stability
     const subDt = dt * 0.25;
     for (let step = 0; step < 4; step++) {
-      const clearance = this.worldY - surf.y;
-      // Full gravity with zero downward parachute drag (only tiny drag on upward climb)
+      const clearance = this.worldY - effGroundY;
       let ay = -GRAVITY - (this.vy > 0 ? this.vy * 0.08 : 0);
 
       if (surf.hasRoad) {
         const relVy = this.vy - roadVy;
         if (clearance <= restH) {
-          // One-sided magnetic air-bed floor: firm, critically damped cushion catches landings cleanly!
+          // Firm, well-damped magnetic air-bed floor (absorbs compression without jarring hard-stops!)
           const pen = restH - clearance;
-          ay += GRAVITY + pen * (170.0 + pen * 240.0) - relVy * 18.5;
-        } else if (clearance < 1.38 && !surf.isRamp) {
-          // Active ground-effect downforce suction over normal hills (subtle crest lightness, zero float!)
-          const s = 1.0 - (clearance - restH) / (1.38 - restH);
-          ay -= s * 48.0;
+          ay += GRAVITY + pen * (145.0 + pen * 190.0) - relVy * 17.5;
+        } else if (clearance < 1.85 && relVy < -3.5) {
+          // Descent-ONLY progressive hydraulic shock absorber (zero float on climb, silky landing catch!)
+          const c = 1.0 - (clearance - restH) / (1.85 - restH);
+          ay += (-relVy) * (13.0 * c * c);
+        } else if (clearance < 1.45 && !surf.isRamp && !noseSurf.isRamp) {
+          // Active ground-effect downforce suction over normal hills (keeps rolling hills planted!)
+          const s = 1.0 - (clearance - restH) / (1.45 - restH);
+          ay -= s * 40.0;
         }
       }
 
       this.vy += ay * subDt;
       // Keep normal rolling hills planted while letting ski-jump ramps launch crisply with speed!
-      const maxUpVy = surf.hasRoad ? (surf.isRamp ? 34.0 : 10.5) : 36.0;
+      const onRamp = surf.isRamp || noseSurf.isRamp;
+      const maxUpVy = surf.hasRoad ? (onRamp ? 30.0 : 10.0) : 32.0;
       if (this.vy > maxUpVy) this.vy = maxUpVy;
       this.worldY += this.vy * subDt;
 
-      // Hard magnetic belly floor on solid tarmac so craft never clips through road
-      if (surf.hasRoad && this.worldY < surf.y + 0.34) {
-        this.worldY = surf.y + 0.34;
-        if (this.vy < roadVy) this.vy = roadVy;
+      // Soft belly clearance floor (0.60 clears the -0.58 ventral fin & anhedral tips -> zero tarmac clipping!)
+      if (surf.hasRoad && this.worldY < effGroundY + 0.60) {
+        this.worldY = effGroundY + 0.60;
+        if (this.vy < roadVy) this.vy = roadVy + (this.vy - roadVy) * 0.15;
       }
     }
 
     const clearance = this.worldY - surf.y;
     this.hoverH = clearance;
-    this.inAir = (!surf.hasRoad || clearance > 1.35) ? 1 : 0;
+    this.inAir = (!surf.hasRoad || clearance > 1.45) ? 1 : 0;
 
     // Record TRUE persistent worldY into ring buffer so twin thruster trails trace the exact 3D flight path!
     if (this.worldS - this._lastWakeS >= 2.2) {
@@ -230,12 +244,13 @@ export class Ship {
       if (this._wakeCount < this._wakeCap) this._wakeCount++;
     }
 
-    // 4. Roll into corners; snappy grounded pitch + crisp velocity-vector pitch when airborne!
+    // 4. Roll into corners; pre-pitch smoothly into approaching ramps + velocity-vector pitch when airborne!
     const targetRoll = -frame.curv * 42.0 - this.latVel * 0.09;
     this.roll += (targetRoll - this.roll) * Math.min(1, dt * 8.5);
     const flightPitch = Math.atan2(this.vy, Math.max(70.0, effSpeed));
-    const targetAbsPitch = (this.inAir ? flightPitch : (frame.pitch * 0.82 + flightPitch * 0.18)) - Math.max(0, this.relVel) * 0.0014;
-    this.pitchSmooth += (targetAbsPitch - this.pitchSmooth) * Math.min(1, dt * (this.inAir ? 9.5 : 14.0));
+    const roadPitch = Math.atan(effSlope);
+    const targetAbsPitch = (this.inAir ? flightPitch : (roadPitch * 0.78 + flightPitch * 0.22)) - Math.max(0, this.relVel) * 0.0014;
+    this.pitchSmooth += (targetAbsPitch - this.pitchSmooth) * Math.min(1, dt * (this.inAir ? 9.5 : 13.5));
     this.pitchOffset = Math.max(-0.34, Math.min(0.34, this.pitchSmooth - frame.pitch));
 
     // Build ship world basis from track frame + local roll + tiny pitchOffset
@@ -264,8 +279,8 @@ export class Ship {
     this.up[0] = nux; this.up[1] = nuy; this.up[2] = nuz;
     this.forward[0] = fx; this.forward[1] = fy; this.forward[2] = fz;
 
-    const baseH = Math.min(0.74, Math.max(0.34, this.hoverH));
-    const extraAir = Math.max(0, this.hoverH - 0.74);
+    const baseH = Math.min(0.84, Math.max(0.60, this.hoverH));
+    const extraAir = Math.max(0, this.hoverH - 0.84);
     this.pos[0] = frame.x + frame.rx * this.lat + frame.ux * baseH;
     this.pos[1] = frame.y + frame.ry * this.lat + frame.uy * baseH + extraAir;
     this.pos[2] = frame.z + frame.rz * this.lat + frame.uz * baseH;

@@ -122,10 +122,10 @@ export class Track {
     for (let i = 0; i < this.jumps.length; i++) {
       if (Math.abs(this.jumps[i].startSeg - startSeg) < 90) return null;
     }
-    // Crisp Wipeout skyway gaps tuned for heavy, weighty gravity (g = 175)!
-    const gapSegs = isMega ? 30 : 22; // 90u chasm for BIG DROP, 66u chasm for chorus jump
+    // Crisp Wipeout skyway gaps tuned for weighty gravity (g = 135) & sloped landing catch ramp!
+    const gapSegs = isMega ? 32 : 24; // 96u chasm for BIG DROP, 72u chasm for chorus jump
     const endSeg = startSeg + gapSegs;
-    const dropY = isMega ? -16.0 : -12.0;
+    const dropY = isMega ? -15.0 : -11.0;
     const launchS = startSeg * SEG_LEN;
     const landS = endSeg * SEG_LEN;
     const jump = {
@@ -170,13 +170,13 @@ export class Track {
   _getSeg(id) {
     let d = this._segData.get(id);
     if (d) return d;
-    const prev = this._segData.get(id - 1) || { curv: 0, y: 0, gap: 0 };
+    const prev = this._segData.get(id - 1) || { curv: 0, y: 0, baseY: 0, gap: 0, ramp: 0 };
 
-    // Check if segment belongs to an immutable disconnected track jump (including 12-seg smooth landing runway)!
+    // Check if segment belongs to an immutable disconnected track jump (including 14-seg sloped catch runway)!
     let activeJump = null;
     for (let i = 0; i < this.jumps.length; i++) {
       const j = this.jumps[i];
-      if (id >= j.startSeg - j.rampLen && id <= j.endSeg + 12) {
+      if (id >= j.startSeg - j.rampLen && id <= j.endSeg + 14) {
         activeJump = j;
         break;
       }
@@ -196,17 +196,18 @@ export class Track {
       Math.sin(id * 0.052 + 0.3) * amp +
       Math.sin(id * 0.023 - 0.8) * (amp * 0.65) +
       Math.cos(id * 0.095) * (amp * 0.22) + this._yOffset;
-    let y = prev.y + (rawY - prev.y) * 0.22;
+    const baseY = prev.baseY + (rawY - prev.baseY) * 0.22;
+    let y = baseY;
     let gap = 0;
     let ramp = 0;
 
     if (activeJump) {
       if (id <= activeJump.startSeg) {
-        // Real speed-responsive ski-jump launch ramp (natural ballistic launch under heavy gravity!)
+        // Non-compounding smooth ski-jump ramp (exact +3.2u / +4.8u lift — never compounds into a wall!)
         ramp = 1;
         const u = (id - (activeJump.startSeg - activeJump.rampLen)) / activeJump.rampLen;
         const lift = u * u * (activeJump.isMega ? 4.8 : 3.2);
-        y += lift;
+        y = baseY + lift;
         if (id === activeJump.startSeg) activeJump.launchY = y;
       } else if (id < activeJump.endSeg) {
         // Disconnected open-sky chasm: hide road geometry while descending smoothly toward lower landing deck!
@@ -214,21 +215,24 @@ export class Track {
         const u = (id - activeJump.startSeg) / (activeJump.endSeg - activeJump.startSeg);
         y = activeJump.launchY + activeJump.dropY * (u * u * (3 - 2 * u));
       } else if (id === activeJump.endSeg) {
-        // Landing lip: permanently adopt the dropped elevation so track continues seamlessly!
+        // Landing lip: adopt dropped elevation cleanly, followed by a gentle downward ski-jump catch slope!
+        const catchDrop = activeJump.isMega ? -3.6 : -2.4;
         if (!activeJump.appliedOffset) {
-          this._yOffset += activeJump.dropY;
+          this._yOffset += activeJump.dropY + catchDrop;
           activeJump.appliedOffset = true;
         }
         y = activeJump.launchY + activeJump.dropY;
       } else {
-        // Smooth flat-to-rolling 12-segment landing runway so the deck never juts up into the craft/camera!
+        // Downward-sloped ski-jump landing catch runway (curves smoothly from tangent descent to level!)
+        const catchDrop = activeJump.isMega ? -3.6 : -2.4;
         const landY = activeJump.launchY + activeJump.dropY;
-        const blend = (id - activeJump.endSeg) / 12.0;
-        y = landY + (y - landY) * (blend * blend);
+        const t = (id - activeJump.endSeg) / 14.0;
+        const catchY = landY + catchDrop * (1.0 - (1.0 - t) * (1.0 - t));
+        y = catchY + (baseY - catchY) * (t * t * t);
       }
     }
 
-    d = { curv, y, gap, ramp };
+    d = { curv, y, baseY: gap ? y : (activeJump && id > activeJump.endSeg ? y : baseY), gap, ramp };
     this._segData.set(id, d);
     return d;
   }
@@ -400,7 +404,7 @@ export class Track {
     const lookFrame = this.sampleAt(this.dist + 28.0, this._lookSample);
     const camLat = this.camShakeX + this.camDrift * 0.45;
     const camUpOff = 4.4 + this.camShakeY + this.camDrift * 0.18;
-    const shipAir = Math.max(0, this._targetShipClearance - 0.74);
+    const shipAir = Math.max(0, this._targetShipClearance - 0.84);
     // Keep chase camera planted with the craft (no lingering high float after landing!)
     const targetCamLift = shipAir * 0.56;
     const targetLookLift = shipAir * 0.72;

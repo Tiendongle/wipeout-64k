@@ -194,8 +194,8 @@ void main() {
           vec3 basePad = isLaunch > 0.5
             ? mix(vec3(1.0, 0.16, 0.48), vec3(1.0, 0.88, 0.16), chev)
             : mix(vec3(0.0, 0.96, 1.0), vec3(1.0, 0.84, 0.12), chev);
-          vec3 padCol = mix(basePad, vec3(1.0, 0.99, 0.96), pd.z * 0.58);
-          float glowBoost = 1.35 + uBeat * 0.25 + pd.z * 1.05 + isLaunch * 0.28;
+          vec3 padCol = mix(basePad, vec3(1.0, 0.99, 0.96), pd.z * 0.42);
+          float glowBoost = 1.20 + uBeat * 0.18 + pd.z * 0.65 + isLaunch * 0.14;
           col = mix(col, padCol * glowBoost, padShape * endFade);
         }
       }
