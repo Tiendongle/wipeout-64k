@@ -148,7 +148,7 @@ function frame(nowMs) {
     }
   }
 
-  track.update(dt, music);
+  track.update(dt, music, ship.catchUp);
   ship.update(dt, track, music, nowSec);
   renderer.render(track, ship, music, TRACKS[synth.trackIndex], dt, nowSec);
   hud.update(music, ship);

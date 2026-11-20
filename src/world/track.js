@@ -108,7 +108,7 @@ export class Track {
     }
   }
 
-  update(dt, music) {
+  update(dt, music, catchUp = 0) {
     // Smooth mouse steering input (Track 5 padLFO modulates smooth drift damping!)
     const steerDamp = music.mode === 'retrowave' ? (2.6 + (music.padLFO || 0.5) * 2.2) : 4.2;
     this.mouseSmooth += (this.mouseTarget - this.mouseSmooth) * Math.min(1, dt * steerDamp);
@@ -132,8 +132,8 @@ export class Track {
     // Loose music sync for hill amplitude (slowly tracks energy)
     this.hillEnergy += (music.energy - this.hillEnergy) * Math.min(1, dt * 0.65);
 
-    // Dynamic Wipeout track pace: smooth velocity curve (ship surge handles discrete beat punch!)
-    const targetSpeed = 96 + music.energy * 74 + (music.isDrop ? 18 : 0) + music.kick * 6 + (music.bassEnergy || 0) * 8;
+    // Dynamic Wipeout track pace: camera accelerates forward into slipstream when catchUp engages!
+    const targetSpeed = 96 + music.energy * 74 + (music.isDrop ? 18 : 0) + catchUp * 34 + music.kick * 6 + (music.bassEnergy || 0) * 8;
     const speedRate = targetSpeed > this.speed ? 4.2 : 2.2;
     this.speed += (targetSpeed - this.speed) * Math.min(1, dt * speedRate);
 

@@ -330,6 +330,11 @@ export class Renderer {
     const gl = this.gl;
     const U = this.u;
 
+    // Dynamic warp-FOV: widens smoothly (64° -> 70.5°) as camera catches up in sustained surge!
+    const dynFov = FOV_RAD + (ship.catchUp || 0) * 0.115;
+    const tanHalfFov = Math.tan(dynFov * 0.5);
+    mat4Perspective(this.projMat, dynFov, this.width / this.height, 0.5, MAX_DEPTH + 40);
+
     mat4LookAtBasis(this.viewMat, track.camPos, track.camRight, track.camUp, track.camForward);
     mat4FromBasis(this.shipModelMat, ship.pos, ship.right, ship.up, ship.forward, 1.0);
 
@@ -359,7 +364,7 @@ export class Renderer {
     gl.disable(gl.BLEND);
     gl.useProgram(this.skyProg);
     gl.uniform1f(U.sky.uAspect, this.width / this.height);
-    gl.uniform1f(U.sky.uTanHalfFov, this._tanHalfFov);
+    gl.uniform1f(U.sky.uTanHalfFov, tanHalfFov);
     gl.uniform1f(U.sky.uWorldYaw, track.worldYaw);
     gl.uniform3f(U.sky.uCamRight, track.camRight.x, track.camRight.y, track.camRight.z);
     gl.uniform3f(U.sky.uCamUp, track.camUp.x, track.camUp.y, track.camUp.z);
@@ -518,8 +523,8 @@ export class Renderer {
       (music.mode === 'retrowave' ? (music.subBassEnvelope || 0) * 0.12 : 0);
     gl.uniform1f(U.dof.uBloomStrength, bloomAmt);
     const speedBlur = music.mode === 'acid'
-      ? Math.min(1.0, (music.filterCutoffNormalized || 0) * 0.65 + (music.accentTrigger || 0) * 0.45)
-      : Math.min(0.65, (music.bassEnergy || 0) * 0.35 + (music.dropFlash || 0) * 0.35);
+      ? Math.min(1.0, (music.filterCutoffNormalized || 0) * 0.65 + (music.accentTrigger || 0) * 0.45 + (ship.catchUp || 0) * 0.25)
+      : Math.min(0.85, (music.bassEnergy || 0) * 0.30 + (music.dropFlash || 0) * 0.30 + (ship.catchUp || 0) * 0.32);
     gl.uniform1f(U.dof.uSpeedBlur, speedBlur);
     gl.uniform1f(U.dof.uRasterMode, music.rasterMode || 0);
     gl.uniform1f(U.dof.uStepPulse, this.stepPulse);
