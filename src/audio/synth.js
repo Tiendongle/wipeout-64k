@@ -432,6 +432,10 @@ export class SynthEngine {
     this.telemetry.bpm = this.track.bpm;
     this.telemetry.mode = this.track.mode;
     this.telemetry.rasterMode = this.track.mode === 'tracker' ? 1.0 : 0.0;
+    if (this.pumpBus && this.ctx) {
+      this.pumpBus.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.pumpBus.gain.setValueAtTime(1.0, this.ctx.currentTime);
+    }
     this._applyTrackBusParams(this.ctx.currentTime);
 
     if (this.timerId) clearInterval(this.timerId);
@@ -507,9 +511,14 @@ export class SynthEngine {
 
   _scheduler() {
     if (!this.playing || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    // Guard against tab-backgrounding catch-up bursts (prevents stacked stutter storms!)
+    if (this.nextStepTime < now - 0.06) {
+      this.nextStepTime = now + 0.02;
+    }
     const lookahead = 0.17;
     const stepDur = 60 / this.track.bpm / 4;
-    while (this.nextStepTime < this.ctx.currentTime + lookahead) {
+    while (this.nextStepTime < now + lookahead) {
       this._scheduleStep(this.step, this.nextStepTime, stepDur);
       this.nextStepTime += stepDur;
       this.step++;
@@ -517,11 +526,12 @@ export class SynthEngine {
   }
 
   _triggerSidechain(t, stepDur, depth, beats = 0.45) {
+    // Glitch-free sidechain using cancelScheduledValues + setTargetAtTime (never collides on syncopated double-kicks!)
     const g = this.pumpBus.gain;
-    const recDur = Math.min(stepDur * 4 * beats, stepDur * 3.6);
-    g.setValueAtTime(1.0, t);
-    g.linearRampToValueAtTime(depth, t + 0.010);
-    g.exponentialRampToValueAtTime(1.0, t + Math.max(0.06, recDur));
+    const recDur = Math.min(stepDur * 4 * beats, stepDur * 3.2);
+    g.cancelScheduledValues(t);
+    g.setTargetAtTime(depth, t, 0.005);
+    g.setTargetAtTime(1.0, t + 0.022, Math.max(0.032, recDur * 0.34));
   }
 
   _scheduleStep(step, t, stepDur) {
@@ -1036,19 +1046,20 @@ export class SynthEngine {
     sub.type = 'sine'; sub.frequency.setValueAtTime(freq * 0.5, t);
     const subG = this.ctx.createGain(); subG.gain.value = 0.58;
 
-    // Cascaded 24dB/oct LPF (180Hz -> 2.5kHz) + 1/8t synced LFO
+    // Cascaded 24dB/oct LPF (280Hz -> 2.5kHz) + 1/8t synced LFO (clamped strictly >140Hz so cutoff NEVER hits 0Hz!)
     const f1 = this.ctx.createBiquadFilter(), f2 = this.ctx.createBiquadFilter();
-    const peakCut = 900 + filterAmt * 1600;
+    const peakCut = 980 + filterAmt * 1520;
     for (const f of [f1, f2]) {
-      f.type = 'lowpass'; f.Q.value = isGrowl ? 3.2 : 2.0;
-      f.frequency.setValueAtTime(180, t);
+      f.type = 'lowpass'; f.Q.value = isGrowl ? 2.8 : 1.9;
+      f.frequency.setValueAtTime(280, t);
       f.frequency.exponentialRampToValueAtTime(peakCut, t + 0.016);
-      f.frequency.exponentialRampToValueAtTime(240, t + dur);
+      f.frequency.exponentialRampToValueAtTime(440, t + dur);
     }
 
     const lfo = this.ctx.createOscillator(), lfoG = this.ctx.createGain();
     lfo.frequency.setValueAtTime((bpm / 60) * 3.0, t); // 1/8t sync!
-    lfoG.gain.setValueAtTime((isGrowl ? 580 : 320) * filterAmt, t);
+    lfoG.gain.setValueAtTime((isGrowl ? 260 : 170) * filterAmt, t);
+    lfoG.gain.linearRampToValueAtTime(110 * filterAmt, t + dur);
     lfo.connect(lfoG); lfoG.connect(f1.frequency); lfoG.connect(f2.frequency);
 
     const g = this.ctx.createGain();
@@ -1249,22 +1260,27 @@ export class SynthEngine {
   }
 
   _playRingModVocal(t, dur, freq, gain) {
-    this._playConsonant(t, 2, gain * 0.8, this.mixBus);
+    // Clean industrial ring-mod vocal stab (pitched metallic modulator + light grit, no random sputter!)
+    this._playConsonant(t, 2, gain * 0.7, this.mixBus);
     const car = this.ctx.createOscillator(); car.setPeriodicWave(this.pulse25Wave); car.frequency.setValueAtTime(freq, t);
+    const mod = this.ctx.createOscillator(); mod.type = 'sine'; mod.frequency.setValueAtTime(freq * 1.414, t);
     const noise = this.ctx.createBufferSource(); noise.buffer = this.crushNoiseBuf;
-    const ring = this.ctx.createGain(); ring.gain.setValueAtTime(0.0, t);
-    const modDepth = this.ctx.createGain(); modDepth.gain.value = 1.0;
-    noise.connect(modDepth); modDepth.connect(ring.gain);
-    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.setValueAtTime(920, t); bp.Q.value = 2.2;
+    const ring = this.ctx.createGain(); ring.gain.setValueAtTime(0.45, t);
+    const modDepth = this.ctx.createGain(); modDepth.gain.value = 0.35;
+    const nDepth = this.ctx.createGain(); nDepth.gain.value = 0.22;
+    mod.connect(modDepth); modDepth.connect(ring.gain);
+    noise.connect(nDepth); nDepth.connect(ring.gain);
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.setValueAtTime(980, t); bp.Q.value = 2.0;
     const env = this.ctx.createGain();
-    env.gain.setValueAtTime(0.001, t); env.gain.linearRampToValueAtTime(gain, t + 0.012); env.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    env.gain.setValueAtTime(0.001, t); env.gain.linearRampToValueAtTime(gain * 0.85, t + 0.012); env.gain.exponentialRampToValueAtTime(0.001, t + dur);
     car.connect(ring); ring.connect(bp); bp.connect(env);
     env.connect(this.mixBus); env.connect(this.reverbIn);
-    car.start(t); noise.start(t); car.stop(t + dur + 0.02); noise.stop(t + dur + 0.02);
+    car.start(t); mod.start(t); noise.start(t);
+    car.stop(t + dur + 0.02); mod.stop(t + dur + 0.02); noise.stop(t + dur + 0.02);
   }
 
   _playBaritoneMetalVocoder(t, dur, freq, gain, phKey, cons) {
-    // Deep menacing Baritone Male Industrial Vocoder (82..165Hz + 34Hz vocal-fry growl + 0.82x dark formants!)
+    // Deep menacing Baritone Male Industrial Vocoder (82..165Hz + subtle throat grit + 0.84x dark formants!)
     const [fA, fB] = PHONEMES[phKey] || PHONEMES.AH;
     this._playConsonant(t, cons, gain * 0.75, this.mixBus);
 
@@ -1275,11 +1291,11 @@ export class SynthEngine {
     o3.frequency.setValueAtTime(freq * 2.0, t); // gritty chest-voice harmonic cuts through guitars!
     const o3G = this.ctx.createGain(); o3G.gain.value = 0.42;
 
-    // 34Hz vocal-fry throat growl modulation!
+    // Subtle vocal-fry grit without stuttery AM tremolo!
     const fry = this.ctx.createOscillator(), fryG = this.ctx.createGain(), fryBus = this.ctx.createGain();
-    fry.frequency.setValueAtTime(34, t);
-    fryBus.gain.setValueAtTime(0.76, t);
-    fryG.gain.value = 0.24;
+    fry.frequency.setValueAtTime(28, t);
+    fryBus.gain.setValueAtTime(0.90, t);
+    fryG.gain.value = 0.09;
     fry.connect(fryG); fryG.connect(fryBus.gain);
     o1.connect(fryBus); o2.connect(fryBus); o3.connect(o3G); o3G.connect(fryBus);
 

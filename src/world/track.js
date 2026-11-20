@@ -119,12 +119,11 @@ export class Track {
       : 0;
     this.acidDrive += (targetAcid - this.acidDrive) * Math.min(1, dt * 6.0);
 
-    // Track 1 (kickTrigger + bassEnergy + leadFreqNorm) tactile high-speed camera shake
-    const shakeAmp = (music.mode === 'breakbeat' || music.mode === 'darksynth')
-      ? ((music.kickTrigger || 0) * 0.14 + (music.bassEnergy || 0) * 0.07 + (music.stabPulse || 0) * 0.08)
-      : (music.kickTrigger || 0) * 0.05;
-    this.camShakeX = Math.sin(this.dist * 0.73) * shakeAmp;
-    this.camShakeY = Math.cos(this.dist * 0.91) * shakeAmp * 0.7;
+    // Smooth, low-frequency suspension punch on kick/drop (replaces high-freq 20Hz jitter that looked like stutter!)
+    const targetDip = (music.kickTrigger || 0) * 0.055 + (music.stabPulse || 0) * 0.030;
+    this.camShakeY += (-targetDip - this.camShakeY) * Math.min(1, dt * 14.0);
+    const targetSway = Math.sin(this.dist * 0.035) * ((music.bassEnergy || 0) * 0.045);
+    this.camShakeX += (targetSway - this.camShakeX) * Math.min(1, dt * 6.0);
     // Track 5 padLFO & subBassEnvelope smooth atmospheric camera drift
     this.camDrift = music.mode === 'retrowave'
       ? ((music.padLFO || 0.5) - 0.5) * 0.9 + ((music.subBassEnvelope || 0) - 0.5) * 0.25
@@ -133,9 +132,9 @@ export class Track {
     // Loose music sync for hill amplitude (slowly tracks energy)
     this.hillEnergy += (music.energy - this.hillEnergy) * Math.min(1, dt * 0.65);
 
-    // Dynamic Wipeout track pace: breathes down during breakdowns, blasts fast during drops
-    const targetSpeed = 92 + music.energy * 72 + (music.isDrop ? 16 : 0) + music.kick * 18 + (music.bassEnergy || 0) * 14;
-    const speedRate = targetSpeed > this.speed ? 6.5 : 2.8;
+    // Dynamic Wipeout track pace: smooth velocity curve (ship surge handles discrete beat punch!)
+    const targetSpeed = 96 + music.energy * 74 + (music.isDrop ? 18 : 0) + music.kick * 6 + (music.bassEnergy || 0) * 8;
+    const speedRate = targetSpeed > this.speed ? 4.2 : 2.2;
     this.speed += (targetSpeed - this.speed) * Math.min(1, dt * speedRate);
 
     const ds = this.speed * dt;
