@@ -436,9 +436,9 @@ void main() {
       float darkAlpha = clamp(casing * 0.88 + fillM * 0.22, 0.0, 1.0);
       float cov = max(darkAlpha, max(outline, fillM * sweep));
       if (cov < 0.05) discard;
-      vec3 casingCol = vec3(0.04, 0.03, 0.08);
-      vec3 strokeCol = mix(uAccent, vec3(1.0, 0.99, 0.96), 0.52) * 1.38;
-      vec3 fillCol = mix(vec3(1.0, 0.99, 0.95), uAccent, 0.24) * 1.48;
+      vec3 casingCol = vec3(0.03, 0.02, 0.07);
+      vec3 strokeCol = mix(uAccent, vec3(1.0, 0.99, 0.96), 0.36) * 1.04;
+      vec3 fillCol = mix(vec3(0.98, 0.97, 0.94), uAccent, 0.30) * 1.08;
       col = mix(casingCol, strokeCol, clamp(edgeStroke * 1.35 + outline * (1.0 - fillM) * 0.9, 0.0, 1.0));
       col = mix(col, fillCol, fillM * sweep);
       a = cov;

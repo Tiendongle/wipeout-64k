@@ -198,16 +198,18 @@ export class Renderer {
   spawnLyric(word, trackDist, energy) {
     if (!this.lyricAtlas || !this.lyricAtlas.map.has(word)) return;
     const lanePick = this._lyricLaneToggle++ % 3;
-    // Alternate left, overhead-center, right racing lanes (sized for larger 3D banners)
-    const lat = lanePick === 0 ? -6.4 : lanePick === 1 ? 0.0 : 6.4;
-    const height = lanePick === 1 ? 6.6 : 4.2;
+    // Center right across the racing path so the craft smashes straight through each word!
+    const lat = lanePick === 0 ? -1.4 : lanePick === 1 ? 0.0 : 1.4;
+    const height = 3.25;
     this.activeLyrics.push({
       word,
       s: trackDist + 210.0,
       lat,
       height,
       speedRatio: 0.26 + energy * 0.14, // flies forward along track as if racing
-      bornEnergy: energy
+      bornEnergy: energy,
+      smashed: 0,
+      smashT: 0
     });
     if (this.activeLyrics.length > 18) {
       this.activeLyrics.shift();
@@ -339,9 +341,34 @@ export class Renderer {
 
     for (let i = this.activeLyrics.length - 1; i >= 0; i--) {
       const l = this.activeLyrics[i];
-      l.s += track.speed * l.speedRatio * dt;
-      if (l.s < track.dist - 6.0) {
-        this.activeLyrics.splice(i, 1);
+      if (l.smashed) {
+        l.smashT += dt;
+        l.s = ship.worldS + 2.0 - l.smashT * 32.0;
+        if (l.smashT > 0.48) this.activeLyrics.splice(i, 1);
+      } else {
+        l.s += track.speed * l.speedRatio * dt;
+        if (l.s <= ship.worldS + 3.5) {
+          // SMASH! Trigger 4-shard shatter + neon spark burst right off the ship's nose
+          l.smashed = 1;
+          l.smashT = 0.001;
+          const sp = this._sparks, cap = this._sparkCap;
+          const pos = ship.pos, r = ship.right, u = ship.up, f = ship.forward;
+          for (let k = 0; k < 24; k++) {
+            const base = this._sparkHead * 7;
+            this._sparkHead = (this._sparkHead + 1) % cap;
+            const ang = (k / 24) * Math.PI * 2 + Math.random() * 0.25;
+            const spd = 14.0 + Math.random() * 18.0;
+            sp[base]     = pos[0] + f[0] * 2.5 + r[0] * Math.cos(ang) * 2.2 + u[0] * (0.8 + Math.sin(ang) * 1.0);
+            sp[base + 1] = pos[1] + f[1] * 2.5 + r[1] * Math.cos(ang) * 2.2 + u[1] * (0.8 + Math.sin(ang) * 1.0);
+            sp[base + 2] = pos[2] + f[2] * 2.5 + r[2] * Math.cos(ang) * 2.2 + u[2] * (0.8 + Math.sin(ang) * 1.0);
+            sp[base + 3] = r[0] * Math.cos(ang) * spd + u[0] * (Math.sin(ang) * spd * 0.75 + 4.0) - f[0] * (16.0 + Math.random() * 18.0);
+            sp[base + 4] = r[1] * Math.cos(ang) * spd + u[1] * (Math.sin(ang) * spd * 0.75 + 4.0) - f[1] * (16.0 + Math.random() * 18.0);
+            sp[base + 5] = r[2] * Math.cos(ang) * spd + u[2] * (Math.sin(ang) * spd * 0.75 + 4.0) - f[2] * (16.0 + Math.random() * 18.0);
+            sp[base + 6] = 0.85 + Math.random() * 0.15;
+          }
+        } else if (l.s < track.dist - 6.0) {
+          this.activeLyrics.splice(i, 1);
+        }
       }
     }
 
@@ -351,15 +378,50 @@ export class Renderer {
 
     for (let i = 0; i < this.activeLyrics.length; i++) {
       const l = this.activeLyrics[i];
-      if (o + 108 > this.quadBuf.length) break;
+      if (o + 144 > this.quadBuf.length) break;
       const uv = this.lyricAtlas.map.get(l.word);
       if (!uv) continue;
       if (l.s > track.dist + AHEAD_SEGS * SEG_LEN - 10) continue;
 
-      const distToShip = Math.abs(l.s - ship.worldS);
-      const pop = 1.0 + (distToShip < 44.0 ? music.beatPulse * 0.14 : 0.0);
-      // Hollow outlined when distant (>165u), smoothly fills in left-to-right as it approaches!
-      const prog = Math.max(0.0, Math.min(1.18, (165.0 - (l.s - ship.worldS)) / 130.0));
+      const distAhead = l.s - ship.worldS;
+      const pop = 1.0 + (Math.abs(distAhead) < 44.0 ? music.beatPulse * 0.12 : 0.0);
+      const hw = 9.8 * pop;
+      const hh = 3.45 * pop;
+
+      if (l.smashed) {
+        // Explode into 4 tumbling quadrant shards flying outward past the camera!
+        track.sampleAt(Math.max(track.dist - 2.0, l.s), fr);
+        const st = l.smashT;
+        const um = (uv.u0 + uv.u1) * 0.5;
+        const vm = (uv.v0 + uv.v1) * 0.5;
+        const shw = hw * 0.5 * (1.0 - st * 0.45);
+        const shh = hh * 0.5 * (1.0 - st * 0.45);
+        for (let q = 0; q < 4; q++) {
+          const qx = (q & 1) ? 1 : -1;
+          const qy = (q & 2) ? 1 : -1;
+          const ox = l.lat + qx * (hw * 0.5 + st * 26.0);
+          const oy = l.height + qy * (hh * 0.5 + st * 12.0) + st * 3.5;
+          const ang = qx * qy * st * 1.9;
+          const ca = Math.cos(ang), sa = Math.sin(ang);
+          const rx = fr.rx * ca + fr.ux * sa, ry = fr.ry * ca + fr.uy * sa, rz = fr.rz * ca + fr.uz * sa;
+          const ux = -fr.rx * sa + fr.ux * ca, uy = -fr.ry * sa + fr.uy * ca, uz = -fr.rz * sa + fr.uz * ca;
+          o = this._pushQuad(
+            this.quadBuf, o,
+            fr.x + fr.rx * ox + fr.ux * oy,
+            fr.y + fr.ry * ox + fr.uy * oy,
+            fr.z + fr.rz * ox + fr.uz * oy,
+            rx, ry, rz, ux, uy, uz,
+            shw, shh,
+            qx < 0 ? uv.u0 : um, qy > 0 ? uv.v0 : vm,
+            qx < 0 ? um : uv.u1, qy > 0 ? vm : uv.v1,
+            1.15, 0.15
+          );
+        }
+        continue;
+      }
+
+      // Hollow neon-outlined until close (<76u), then fills in left-to-right right before smash!
+      const prog = Math.max(0.0, Math.min(1.18, (76.0 - distAhead) / 56.0));
 
       // 2 faint trailing karaoke echo ghosts behind the main word
       for (let g = 2; g >= 1; g--) {
@@ -370,7 +432,7 @@ export class Renderer {
           fr.y + fr.ry * l.lat + fr.uy * l.height,
           fr.z + fr.rz * l.lat + fr.uz * l.height,
           fr.rx, fr.ry, fr.rz, fr.ux, fr.uy, fr.uz,
-          7.2 * pop, 2.52 * pop, uv.u0, uv.v0, uv.u1, uv.v1, -9.0
+          hw, hh, uv.u0, uv.v0, uv.u1, uv.v1, -9.0
         );
       }
 
@@ -382,7 +444,7 @@ export class Renderer {
         fr.y + fr.ry * l.lat + fr.uy * l.height,
         fr.z + fr.rz * l.lat + fr.uz * l.height,
         fr.rx, fr.ry, fr.rz, fr.ux, fr.uy, fr.uz,
-        7.2 * pop, 2.52 * pop, uv.u0, uv.v0, uv.u1, uv.v1, prog, prog - 1.0
+        hw, hh, uv.u0, uv.v0, uv.u1, uv.v1, prog, prog - 1.0
       );
     }
     return o / 6;
