@@ -469,6 +469,14 @@ float getCoC(float d) {
   return coc * coc * uDofStrength;
 }
 
+// Precomputed 12-tap golden-angle Vogel-disk offsets (zero trig inside fragment loop!)
+const vec2 VOGEL[12] = vec2[12](
+  vec2(-0.2128,  0.1950), vec2( 0.0365, -0.4066), vec2( 0.3037,  0.3972),
+  vec2(-0.5621, -0.1319), vec2( 0.5425, -0.3497), vec2(-0.2330,  0.6677),
+  vec2(-0.2943, -0.7048), vec2( 0.7285,  0.3688), vec2(-0.8224,  0.2647),
+  vec2( 0.4539, -0.7920), vec2( 0.2314,  0.9288), vec2(-0.8588, -0.5122)
+);
+
 void main() {
   vec3 centerCol = texture(uScene, vUv).rgb;
   float centerD = texture(uDepth, vUv).r;
@@ -477,22 +485,13 @@ void main() {
   vec3 acc = centerCol;
   float wSum = 1.0;
 
-  // High-quality 16-tap Vogel-disk bokeh gather with depth-aware weighting
+  // High-quality 12-tap precomputed Vogel-disk bokeh gather with depth-aware weighting
   if (centerCoC > 0.015) {
-    float maxRadius = 8.5 * centerCoC;
-    const float GOLDEN = 2.39996323;
-    for (int i = 1; i <= 16; i++) {
-      float fi = float(i);
-      float r = sqrt(fi / 16.0) * maxRadius;
-      float a = fi * GOLDEN;
-      vec2 off = vec2(cos(a), sin(a)) * r * uTexel;
-      vec2 suv = clamp(vUv + off, vec2(0.001), vec2(0.999));
-
+    vec2 stepScale = (8.0 * centerCoC) * uTexel;
+    for (int i = 0; i < 12; i++) {
+      vec2 suv = clamp(vUv + VOGEL[i] * stepScale, vec2(0.001), vec2(0.999));
       float sd = texture(uDepth, suv).r;
-      float sCoC = getCoC(sd);
-
-      // Prevent sharp foreground (ship) from bleeding onto blurred background
-      float w = (sd >= centerD - 0.015) ? 1.0 : clamp(sCoC, 0.0, 1.0);
+      float w = (sd >= centerD - 0.015) ? 1.0 : getCoC(sd);
       acc += texture(uScene, suv).rgb * w;
       wSum += w;
     }

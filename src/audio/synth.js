@@ -115,8 +115,16 @@ export class SynthEngine {
     this.acidSatBus = null;
     this.noiseBuf = null;
     this.crushNoiseBuf = null;
+    this.ride909Buf = null;
     this.pulse25Wave = null;
     this.pulse15Wave = null;
+
+    // Zero-allocation circular event queue (replaces per-step setTimeout storm!)
+    this._evCap = 128;
+    this._evQ = new Array(128);
+    for (let i = 0; i < 128; i++) this._evQ[i] = { t: 0, kind: 0, a: 0, b: 0, c: 0 };
+    this._evHead = 0;
+    this._evTail = 0;
 
     this.trackIndex = 0;
     this.playing = false;
@@ -260,11 +268,11 @@ export class SynthEngine {
       this._subTimeData = new Float32Array(this.subAnalyser.fftSize);
     }
 
-    // 2.5s Warm Stereo Gated Hall Reverb -> pumpBus
+    // 1.85s Warm Stereo Gated Hall Reverb -> pumpBus (lightweight stereo FFT!)
     this.reverbIn = this.ctx.createGain();
     this.reverbIn.gain.value = 0.34;
     const conv = this.ctx.createConvolver();
-    conv.buffer = makeGatedHallIR(this.ctx, 2.5);
+    conv.buffer = makeGatedHallIR(this.ctx, 1.85);
     const revHp = this.ctx.createBiquadFilter();
     revHp.type = 'highpass'; revHp.frequency.value = 210;
     const revLp = this.ctx.createBiquadFilter();
@@ -294,7 +302,7 @@ export class SynthEngine {
     this.darkDistBus = this.ctx.createBiquadFilter();
     this.darkDistBus.type = 'lowpass'; this.darkDistBus.frequency.value = 2100;
     const hardClip = this.ctx.createWaveShaper();
-    hardClip.curve = makeHardClipCurve(9.5); hardClip.oversample = '2x';
+    hardClip.curve = makeHardClipCurve(9.5); hardClip.oversample = 'none';
     const dCabLp = this.ctx.createBiquadFilter(); dCabLp.type = 'lowpass'; dCabLp.frequency.value = 2500;
     const dOut = this.ctx.createGain(); dOut.gain.value = 0.40;
     this.darkDistBus.connect(hardClip); hardClip.connect(dCabLp); dCabLp.connect(dOut); dOut.connect(this.pumpBus);
@@ -303,12 +311,11 @@ export class SynthEngine {
     this.metalAmpBus = this.ctx.createBiquadFilter();
     this.metalAmpBus.type = 'highpass'; this.metalAmpBus.frequency.value = 115;
     const mPreLp = this.ctx.createBiquadFilter(); mPreLp.type = 'lowpass'; mPreLp.frequency.value = 2250;
-    const mDrive = this.ctx.createWaveShaper(); mDrive.curve = makeHardClipCurve(9.0); mDrive.oversample = '2x';
+    const mDrive = this.ctx.createWaveShaper(); mDrive.curve = makeHardClipCurve(9.0); mDrive.oversample = 'none';
     const mScoop = this.ctx.createBiquadFilter(); mScoop.type = 'peaking'; mScoop.frequency.value = 520; mScoop.Q.value = 0.9; mScoop.gain.value = -4.2;
     const mPres = this.ctx.createBiquadFilter(); mPres.type = 'peaking'; mPres.frequency.value = 2050; mPres.Q.value = 1.0; mPres.gain.value = 3.0;
     const mCab = this.ctx.createBiquadFilter(); mCab.type = 'lowpass'; mCab.frequency.value = 3200; mCab.Q.value = 0.7;
     const mOut = this.ctx.createGain(); mOut.gain.value = 0.54;
-    // Stereo wide double-tracked metal guitar feel (0ms L vs 13ms R!)
     const mPanL = this.ctx.createStereoPanner(); mPanL.pan.value = -0.68;
     const mPanR = this.ctx.createStereoPanner(); mPanR.pan.value = 0.68;
     const mDly = this.ctx.createDelay(0.05); mDly.delayTime.value = 0.013;
@@ -319,7 +326,7 @@ export class SynthEngine {
 
     // Track 4 TB-303 Warm Analog Overdrive Bus (club low-mid weight + diode saturation!)
     this.acidSatBus = this.ctx.createWaveShaper();
-    this.acidSatBus.curve = makeTubeCurve(3.0); this.acidSatBus.oversample = '2x';
+    this.acidSatBus.curve = makeTubeCurve(3.0); this.acidSatBus.oversample = 'none';
     const aLow = this.ctx.createBiquadFilter(); aLow.type = 'lowshelf'; aLow.frequency.value = 180; aLow.gain.value = 2.4;
     const aLp = this.ctx.createBiquadFilter(); aLp.type = 'lowpass'; aLp.frequency.value = 5400;
     const aOut = this.ctx.createGain(); aOut.gain.value = 0.80;
@@ -329,10 +336,11 @@ export class SynthEngine {
     this.pulse25Wave = makePulseWave(this.ctx, 0.25, 28);
     this.pulse15Wave = makePulseWave(this.ctx, 0.15, 32);
 
-    // White noise & 10x decimated lo-fi crushed noise buffers
-    const len = this.ctx.sampleRate * 2;
-    this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
-    this.crushNoiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    // White noise, 10x decimated lo-fi crushed noise, and pre-baked 6-osc TR-909 metallic ride!
+    const sr = this.ctx.sampleRate;
+    const len = sr * 2;
+    this.noiseBuf = this.ctx.createBuffer(1, len, sr);
+    this.crushNoiseBuf = this.ctx.createBuffer(1, len, sr);
     const nData = this.noiseBuf.getChannelData(0);
     const cData = this.crushNoiseBuf.getChannelData(0);
     const rnd = makePrng(9001);
@@ -342,6 +350,17 @@ export class SynthEngine {
       nData[i] = v;
       if (i % 10 === 0) held = Math.round(v * 4) / 4;
       cData[i] = held;
+    }
+
+    const rLen = Math.floor(sr * 0.22);
+    this.ride909Buf = this.ctx.createBuffer(1, rLen, sr);
+    const rData = this.ride909Buf.getChannelData(0);
+    const rFreqs = [305, 452, 540, 622, 810, 1020];
+    for (let i = 0; i < rLen; i++) {
+      const tSec = i / sr;
+      let s = 0;
+      for (let k = 0; k < 6; k++) s += Math.sin(2 * Math.PI * rFreqs[k] * tSec) >= 0 ? 1 : -1;
+      rData[i] = (s / 6) * Math.exp(-tSec * 22.0);
     }
   }
 
@@ -359,6 +378,44 @@ export class SynthEngine {
     }
   }
 
+  _pushEv(time, kind, a = 0, b = 0, c = 0) {
+    if (this._offline) return;
+    const nextTail = (this._evTail + 1) % this._evCap;
+    if (nextTail === this._evHead) this._evHead = (this._evHead + 1) % this._evCap;
+    const slot = this._evQ[this._evTail];
+    slot.t = time; slot.kind = kind; slot.a = a; slot.b = b; slot.c = c;
+    this._evTail = nextTail;
+  }
+
+  _drainEvents(now) {
+    while (this._evHead !== this._evTail) {
+      const ev = this._evQ[this._evHead];
+      if (ev.t > now) break;
+      this._evHead = (this._evHead + 1) % this._evCap;
+      if (ev.kind === 1) {
+        this.telemetry.stepTick++;
+        this.telemetry.stepBar = ev.a;
+        this.telemetry.stepNote = ev.b;
+        if (this.onStep) this.onStep(ev.a, ev.b, ev.c);
+      } else if (ev.kind === 2) {
+        this.telemetry.dropId++;
+      } else if (ev.kind === 3) {
+        this.telemetry.lyric = ev.a;
+        this.telemetry.lyricId++;
+        if (this.onLyric) this.onLyric(ev.a, ev.b);
+      } else if (ev.kind === 4) {
+        this.telemetry.kickId++;
+      } else if (ev.kind === 5) {
+        this.telemetry.accentCount++;
+      } else if (ev.kind === 6) {
+        this.telemetry.stabTriggers++;
+      } else if (ev.kind === 7) {
+        this.telemetry.leadFrequency = ev.a;
+        this.telemetry.leadFreqNorm = ev.b;
+      }
+    }
+  }
+
   start(trackIdx = this.trackIndex) {
     this._ensureContext();
     if (this.ctx.state === 'suspended') this.ctx.resume();
@@ -368,6 +425,8 @@ export class SynthEngine {
     this._offline = false;
     this.step = 0;
     this._lyricIndex = 0;
+    this._evHead = 0;
+    this._evTail = 0;
     this.nextStepTime = this.ctx.currentTime + 0.05;
     this.startTime = this.nextStepTime;
     this.telemetry.bpm = this.track.bpm;
@@ -376,11 +435,13 @@ export class SynthEngine {
     this._applyTrackBusParams(this.ctx.currentTime);
 
     if (this.timerId) clearInterval(this.timerId);
-    this.timerId = setInterval(() => this._scheduler(), 22);
+    this.timerId = setInterval(() => this._scheduler(), 32);
   }
 
   stop() {
     this.playing = false;
+    this._evHead = 0;
+    this._evTail = 0;
     if (this.timerId) {
       clearInterval(this.timerId);
       this.timerId = null;
@@ -446,7 +507,7 @@ export class SynthEngine {
 
   _scheduler() {
     if (!this.playing || !this.ctx) return;
-    const lookahead = 0.12;
+    const lookahead = 0.17;
     const stepDur = 60 / this.track.bpm / 4;
     while (this.nextStepTime < this.ctx.currentTime + lookahead) {
       this._scheduleStep(this.step, this.nextStepTime, stepDur);
@@ -484,15 +545,7 @@ export class SynthEngine {
     if (s16 % 4 === 0) this._lastBeatTime = t;
 
     if (!this._offline) {
-      const delayMs = Math.max(0, (t - this.ctx.currentTime) * 1000);
-      const stepNote = chord.a[s16 % 4];
-      setTimeout(() => {
-        if (!this.playing) return;
-        this.telemetry.stepTick++;
-        this.telemetry.stepBar = bar;
-        this.telemetry.stepNote = stepNote;
-        if (this.onStep) this.onStep(bar, stepNote, s16);
-      }, delayMs);
+      this._pushEv(t, 1, bar, chord.a[s16 % 4], s16);
     }
 
     if (sec.roll && barInSec === 0 && s16 === 0) {
@@ -503,22 +556,13 @@ export class SynthEngine {
       this._playCrash(t, 0.28);
       this._playSubDrop(t, 0.34);
       this._lastDropTime = t;
-      if (!this._offline) {
-        const delayMs = Math.max(0, (t - this.ctx.currentTime) * 1000);
-        setTimeout(() => { if (this.playing) this.telemetry.dropId++; }, delayMs);
-      }
+      this._pushEv(t, 2);
     }
 
     if (!this._offline && s16 % 8 === 0 && tr.lyrics.length > 0) {
       const word = tr.lyrics[this._lyricIndex % tr.lyrics.length];
       this._lyricIndex++;
-      const delayMs = Math.max(0, (t - this.ctx.currentTime) * 1000);
-      setTimeout(() => {
-        if (!this.playing) return;
-        this.telemetry.lyric = word;
-        this.telemetry.lyricId++;
-        if (this.onLyric) this.onLyric(word, sec.energy);
-      }, delayMs);
+      this._pushEv(t, 3, word, sec.energy);
     }
 
     // --- PER-BAR PADS & ATMOSPHERES (Track-Exclusive!) ---
@@ -580,11 +624,11 @@ export class SynthEngine {
     if (mode === 'acid') {
       if (sec.stab > 0 && tr.stabPat && tr.stabPat[s16]) {
         const stabBase = tr.root + 24 + (chord.b - 33);
-        const freqs = [0, 3, 7, 10, 14].map(iv => midiToFreq(stabBase + iv));
-        this._playDetroitRaveStab(t, stepDur * 1.5, freqs, sec.stab * 0.062);
+        const freqs = [0, 3, 10, 14].map(iv => midiToFreq(stabBase + iv));
+        this._playDetroitRaveStab(t, stepDur * 1.5, freqs, sec.stab * 0.072);
       }
       if (sec.ride > 0 && s16 % 2 === 0) {
-        this._playRide909(t, sec.ride * (s16 % 4 === 2 ? 0.075 : 0.042));
+        this._playRide909(t, sec.ride * (s16 % 4 === 2 ? 0.088 : 0.050));
       }
     }
 
@@ -612,10 +656,7 @@ export class SynthEngine {
       const pumpLen = mode === 'retrowave' ? 0.88 : (mode === 'darksynth' ? 0.62 : 0.45);
       this._triggerSidechain(t, stepDur, tr.patch.pump || 0.45, pumpLen);
       this._lastKickTime = t;
-      if (!this._offline) {
-        const delayMs = Math.max(0, (t - this.ctx.currentTime) * 1000);
-        setTimeout(() => { if (this.playing) this.telemetry.kickId++; }, delayMs);
-      }
+      this._pushEv(t, 4);
     }
 
     let snareVal = !introEarly && sec.snare > 0 ? (snarePat[s16] || 0) : 0;
@@ -652,10 +693,7 @@ export class SynthEngine {
           this._playAcid303(t, stepDur * (slide ? 1.18 : 0.86), freq, sec.acid, normCut, acc, slide, sec.drop);
           if (acc) {
             this._lastAccentTime = t;
-            if (!this._offline) {
-              const delayMs = Math.max(0, (t - this.ctx.currentTime) * 1000);
-              setTimeout(() => { if (this.playing) this.telemetry.accentCount++; }, delayMs);
-            }
+            this._pushEv(t, 5);
             // Glitch-stuttered 32nd-note chordal vocal chop on acid accents!
             if (sec.chop > 0 && s16 % 4 === 0) {
               const chopFreq = midiToFreq(tr.root + 24 + semi);
@@ -714,10 +752,7 @@ export class SynthEngine {
       const freqs = chord.p.map(n => midiToFreq(tr.root + 12 + n));
       this._playDarkBrassStab(t, stepDur * 1.45, freqs, sec.stab * 0.140);
       this._lastStabTime = t;
-      if (!this._offline) {
-        const delayMs = Math.max(0, (t - this.ctx.currentTime) * 1000);
-        setTimeout(() => { if (this.playing) this.telemetry.stabTriggers++; }, delayMs);
-      }
+      this._pushEv(t, 6);
     }
 
     // --- TRACK 1 & 2 ROBOTIC VOCAL STABS ---
@@ -746,14 +781,7 @@ export class SynthEngine {
           const cons = ev[5] || 0;
           this._playModeLead(mode, t, dur, midi, freq, slide, ph, cons, sec.filter, sec.drop);
 
-          if (!this._offline) {
-            const delayMs = Math.max(0, (t - this.ctx.currentTime) * 1000);
-            setTimeout(() => {
-              if (!this.playing) return;
-              this.telemetry.leadFrequency = freq;
-              this.telemetry.leadFreqNorm = Math.max(0, Math.min(1, (midi - 52) / 30));
-            }, delayMs);
-          }
+          this._pushEv(t, 7, freq, Math.max(0, Math.min(1, (midi - 52) / 30)));
           break;
         }
       }
@@ -923,23 +951,15 @@ export class SynthEngine {
     src.start(t); src.stop(t + dur + 0.01);
   }
 
-  // Track 4 Exclusive: Authentic 6-Oscillator Inharmonic TR-909 Metallic Ride Cymbal!
+  // Track 4 Exclusive: Pre-baked 6-Oscillator Inharmonic TR-909 Metallic Ride Cymbal (1 BufferSource vs 6 oscs!)
   _playRide909(t, gain) {
-    const freqs = [305, 452, 540, 622, 810, 1020];
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.ride909Buf;
     const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.setValueAtTime(6200, t);
-    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(10800, t);
     const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.001, t);
-    g.gain.linearRampToValueAtTime(gain, t + 0.003);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-    hp.connect(lp); lp.connect(g); g.connect(this.dryBus);
-    for (const f of freqs) {
-      const o = this.ctx.createOscillator();
-      o.type = 'square';
-      o.frequency.setValueAtTime(f, t);
-      o.connect(hp);
-      o.start(t); o.stop(t + 0.19);
-    }
+    g.gain.setValueAtTime(gain * 2.2, t);
+    src.connect(hp); hp.connect(g); g.connect(this.dryBus);
+    src.start(t); src.stop(t + 0.20);
   }
 
   // Track 2 Exclusive: Metallic Industrial Anvil Clang!
@@ -1063,8 +1083,8 @@ export class SynthEngine {
   }
 
   _playAnthemSupersaw(t, dur, freqs, gain, cutoff) {
-    // 5-voice stadium detuned Supersaw chords spread wide in stereo!
-    const detunes = [-22, -10, 0, 10, 22];
+    // Wide stereo stadium Supersaw chords (3 detuned saws per note -> 40% fewer oscs, same stadium wall!)
+    const detunes = [-18, 0, 18];
     const fltL = this.ctx.createBiquadFilter(), fltR = this.ctx.createBiquadFilter();
     for (const flt of [fltL, fltR]) {
       flt.type = 'lowpass'; flt.Q.value = 1.1;
@@ -1074,18 +1094,19 @@ export class SynthEngine {
     const gL = this.ctx.createGain(), gR = this.ctx.createGain();
     const pL = this.ctx.createStereoPanner(); pL.pan.value = -0.78;
     const pR = this.ctx.createStereoPanner(); pR.pan.value = 0.78;
+    const amp = gain * 1.25;
     for (const g of [gL, gR]) {
       g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(gain, t + 0.012);
+      g.gain.linearRampToValueAtTime(amp, t + 0.012);
       g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     }
     fltL.connect(gL); gL.connect(pL); pL.connect(this.pumpBus); pL.connect(this.reverbIn);
     fltR.connect(gR); gR.connect(pR); pR.connect(this.pumpBus); pR.connect(this.reverbIn);
     for (const f of freqs) {
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 3; i++) {
         const o = this.ctx.createOscillator();
         o.type = 'sawtooth'; o.frequency.setValueAtTime(f, t); o.detune.setValueAtTime(detunes[i], t);
-        o.connect(i % 2 === 0 ? fltL : fltR);
+        o.connect(i === 0 ? fltL : (i === 2 ? fltR : (f % 2 < 1 ? fltL : fltR)));
         o.start(t); o.stop(t + dur + 0.02);
       }
     }
@@ -1173,8 +1194,9 @@ export class SynthEngine {
   // =========================================================================
 
   _playChugMetalGuitar(t, dur, rootMidi, gain, isOpen) {
-    // Authentic palm-muted heavy metal double-tracked power chord (root + 5th + octave) into 4x12 amp sim!
+    // Palm-muted heavy metal power chord (root + 5th + octave -> 13ms stereo double-tracked 4x12 cab!)
     const notes = [rootMidi, rootMidi + 7, rootMidi + 12];
+    const dets = [-5, 5, 0];
     const palmLp = this.ctx.createBiquadFilter();
     palmLp.type = 'lowpass'; palmLp.Q.value = isOpen ? 1.1 : 2.5;
     palmLp.frequency.setValueAtTime(isOpen ? 3300 : 2300, t);
@@ -1182,19 +1204,16 @@ export class SynthEngine {
 
     const env = this.ctx.createGain();
     env.gain.setValueAtTime(0.001, t);
-    env.gain.linearRampToValueAtTime(gain, t + 0.003);
+    env.gain.linearRampToValueAtTime(gain * 1.28, t + 0.003);
     env.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
     palmLp.connect(env); env.connect(this.metalAmpBus);
 
-    for (const m of notes) {
-      const f = midiToFreq(m);
-      for (const dtC of [-8, 8]) {
-        const o = this.ctx.createOscillator();
-        o.type = 'sawtooth'; o.frequency.setValueAtTime(f, t); o.detune.setValueAtTime(dtC, t);
-        o.connect(palmLp);
-        o.start(t); o.stop(t + dur + 0.02);
-      }
+    for (let i = 0; i < 3; i++) {
+      const o = this.ctx.createOscillator();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(midiToFreq(notes[i]), t); o.detune.setValueAtTime(dets[i], t);
+      o.connect(palmLp);
+      o.start(t); o.stop(t + dur + 0.02);
     }
   }
 
@@ -1729,6 +1748,7 @@ export class SynthEngine {
     }
 
     const t = this.ctx.currentTime;
+    this._drainEvents(t);
     const beatDur = 60 / this.track.bpm;
     const elapsed = Math.max(0, t - this.startTime);
     tel.beatPhase = (elapsed / beatDur) % 1;

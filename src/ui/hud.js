@@ -105,6 +105,7 @@ export class Hud {
     this._lastKph = -1;
     this._lastSec = '';
     this._lastLyric = '';
+    this._lastFlash = false;
   }
 
   setTrackState(idx, playing, muted) {
@@ -117,12 +118,15 @@ export class Hud {
   }
 
   update(music, ship) {
-    // Flash red tDR V-eyes visor on beat, kick, industrial stabs, and TB-303 acid accents!
+    // Only touch SVG DOM when beat-flash state actually changes!
     const flash = music.beatPulse > 0.34 || music.kick > 0.42 || (music.stabPulse || 0) > 0.45 || (music.accentTrigger || 0) > 0.45;
-    this.eyeV.classList.toggle('flash', flash);
+    if (flash !== this._lastFlash) {
+      this._lastFlash = flash;
+      this.eyeV.classList.toggle('flash', flash);
+    }
 
     const kph = Math.round(ship.kph);
-    if (kph !== this._lastKph) {
+    if (Math.abs(kph - this._lastKph) >= 2) {
       this._lastKph = kph;
       this.kphEl.textContent = String(kph).padStart(3, '0');
     }

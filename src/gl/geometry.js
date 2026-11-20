@@ -205,62 +205,61 @@ export function writeTrackGeometry(track, out) {
   const railH = 0.95;
   const wallH = 1.65;
   const wallOut = hw + 0.55;
+  const rOff = hw + 0.15;
+  const rThick = 0.24;
 
-  function putV(x, y, z, nx, ny, nz, u, v, mat) {
-    out[o++] = x; out[o++] = y; out[o++] = z;
-    out[o++] = nx; out[o++] = ny; out[o++] = nz;
-    out[o++] = u; out[o++] = v; out[o++] = mat;
-  }
-
-  function putQuad(a, b, c, d, nx, ny, nz, ua, va, ub, vb, uc, vc, ud, vd, mat) {
-    putV(a[0], a[1], a[2], nx, ny, nz, ua, va, mat);
-    putV(b[0], b[1], b[2], nx, ny, nz, ub, vb, mat);
-    putV(c[0], c[1], c[2], nx, ny, nz, uc, vc, mat);
-    putV(a[0], a[1], a[2], nx, ny, nz, ua, va, mat);
-    putV(c[0], c[1], c[2], nx, ny, nz, uc, vc, mat);
-    putV(d[0], d[1], d[2], nx, ny, nz, ud, vd, mat);
+  function putQuad(
+    ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz,
+    nx, ny, nz, ua, va, ub, vb, uc, vc, ud, vd, mat
+  ) {
+    out[o++] = ax; out[o++] = ay; out[o++] = az; out[o++] = nx; out[o++] = ny; out[o++] = nz; out[o++] = ua; out[o++] = va; out[o++] = mat;
+    out[o++] = bx; out[o++] = by; out[o++] = bz; out[o++] = nx; out[o++] = ny; out[o++] = nz; out[o++] = ub; out[o++] = vb; out[o++] = mat;
+    out[o++] = cx; out[o++] = cy; out[o++] = cz; out[o++] = nx; out[o++] = ny; out[o++] = nz; out[o++] = uc; out[o++] = vc; out[o++] = mat;
+    out[o++] = ax; out[o++] = ay; out[o++] = az; out[o++] = nx; out[o++] = ny; out[o++] = nz; out[o++] = ua; out[o++] = va; out[o++] = mat;
+    out[o++] = cx; out[o++] = cy; out[o++] = cz; out[o++] = nx; out[o++] = ny; out[o++] = nz; out[o++] = uc; out[o++] = vc; out[o++] = mat;
+    out[o++] = dx; out[o++] = dy; out[o++] = dz; out[o++] = nx; out[o++] = ny; out[o++] = nz; out[o++] = ud; out[o++] = vd; out[o++] = mat;
   }
 
   for (let i = 0; i < TOTAL_SEGS; i++) {
     const p0 = track.samples[i];
     const p1 = track.samples[i + 1];
+    const s0 = p0.s, s1 = p1.s;
 
-    // Road surface (-hw .. +hw)
-    const r0L = [p0.x - p0.rx * hw, p0.y - p0.ry * hw, p0.z - p0.rz * hw];
-    const r0R = [p0.x + p0.rx * hw, p0.y + p0.ry * hw, p0.z + p0.rz * hw];
-    const r1R = [p1.x + p1.rx * hw, p1.y + p1.ry * hw, p1.z + p1.rz * hw];
-    const r1L = [p1.x - p1.rx * hw, p1.y - p1.ry * hw, p1.z - p1.rz * hw];
+    // Road surface (-hw .. +hw) — zero allocations!
+    const r0Lx = p0.x - p0.rx * hw, r0Ly = p0.y - p0.ry * hw, r0Lz = p0.z - p0.rz * hw;
+    const r0Rx = p0.x + p0.rx * hw, r0Ry = p0.y + p0.ry * hw, r0Rz = p0.z + p0.rz * hw;
+    const r1Rx = p1.x + p1.rx * hw, r1Ry = p1.y + p1.ry * hw, r1Rz = p1.z + p1.rz * hw;
+    const r1Lx = p1.x - p1.rx * hw, r1Ly = p1.y - p1.ry * hw, r1Lz = p1.z - p1.rz * hw;
 
-    putQuad(r0L, r0R, r1R, r1L, p0.ux, p0.uy, p0.uz, -1, p0.s, 1, p0.s, 1, p1.s, -1, p1.s, 0);
+    putQuad(r0Lx, r0Ly, r0Lz, r0Rx, r0Ry, r0Rz, r1Rx, r1Ry, r1Rz, r1Lx, r1Ly, r1Lz, p0.ux, p0.uy, p0.uz, -1, s0, 1, s0, 1, s1, -1, s1, 0);
 
-    // Left chevron barrier wall (angled slightly outward like Wipeout)
-    const lw0B = r0L;
-    const lw1B = r1L;
-    const lw0T = [p0.x - p0.rx * wallOut + p0.ux * wallH, p0.y - p0.ry * wallOut + p0.uy * wallH, p0.z - p0.rz * wallOut + p0.uz * wallH];
-    const lw1T = [p1.x - p1.rx * wallOut + p1.ux * wallH, p1.y - p1.ry * wallOut + p1.uy * wallH, p1.z - p1.rz * wallOut + p1.uz * wallH];
-    putQuad(lw0B, lw1B, lw1T, lw0T, p0.rx, p0.ry, p0.rz, 0, p0.s, 0, p1.s, 1, p1.s, 1, p0.s, 1);
+    // Left chevron barrier wall
+    const lw0Tx = p0.x - p0.rx * wallOut + p0.ux * wallH;
+    const lw0Ty = p0.y - p0.ry * wallOut + p0.uy * wallH;
+    const lw0Tz = p0.z - p0.rz * wallOut + p0.uz * wallH;
+    const lw1Tx = p1.x - p1.rx * wallOut + p1.ux * wallH;
+    const lw1Ty = p1.y - p1.ry * wallOut + p1.uy * wallH;
+    const lw1Tz = p1.z - p1.rz * wallOut + p1.uz * wallH;
+    putQuad(r0Lx, r0Ly, r0Lz, r1Lx, r1Ly, r1Lz, lw1Tx, lw1Ty, lw1Tz, lw0Tx, lw0Ty, lw0Tz, p0.rx, p0.ry, p0.rz, 0, s0, 0, s1, 1, s1, 1, s0, 1);
 
     // Right chevron barrier wall
-    const rw0B = r0R;
-    const rw1B = r1R;
-    const rw0T = [p0.x + p0.rx * wallOut + p0.ux * wallH, p0.y + p0.ry * wallOut + p0.uy * wallH, p0.z + p0.rz * wallOut + p0.uz * wallH];
-    const rw1T = [p1.x + p1.rx * wallOut + p1.ux * wallH, p1.y + p1.ry * wallOut + p1.uy * wallH, p1.z + p1.rz * wallOut + p1.uz * wallH];
-    putQuad(rw1B, rw0B, rw0T, rw1T, -p0.rx, -p0.ry, -p0.rz, 0, p1.s, 0, p0.s, 1, p0.s, 1, p1.s, 1);
+    const rw0Tx = p0.x + p0.rx * wallOut + p0.ux * wallH;
+    const rw0Ty = p0.y + p0.ry * wallOut + p0.uy * wallH;
+    const rw0Tz = p0.z + p0.rz * wallOut + p0.uz * wallH;
+    const rw1Tx = p1.x + p1.rx * wallOut + p1.ux * wallH;
+    const rw1Ty = p1.y + p1.ry * wallOut + p1.uy * wallH;
+    const rw1Tz = p1.z + p1.rz * wallOut + p1.uz * wallH;
+    putQuad(r1Rx, r1Ry, r1Rz, r0Rx, r0Ry, r0Rz, rw0Tx, rw0Ty, rw0Tz, rw1Tx, rw1Ty, rw1Tz, -p0.rx, -p0.ry, -p0.rz, 0, s1, 0, s0, 1, s0, 1, s1, 1);
 
-    // Left & Right glowing anti-grav rails floating slightly above barriers
-    const rOff = hw + 0.15;
-    const rThick = 0.24;
-    for (const side of [-1, 1]) {
-      const b0 = [p0.x + p0.rx * (side * rOff) + p0.ux * railH, p0.y + p0.ry * (side * rOff) + p0.uy * railH, p0.z + p0.rz * (side * rOff) + p0.uz * railH];
-      const b1 = [p1.x + p1.rx * (side * rOff) + p1.ux * railH, p1.y + p1.ry * (side * rOff) + p1.uy * railH, p1.z + p1.rz * (side * rOff) + p1.uz * railH];
-      const t0 = [b0[0] + p0.ux * rThick, b0[1] + p0.uy * rThick, b0[2] + p0.uz * rThick];
-      const t1 = [b1[0] + p1.ux * rThick, b1[1] + p1.uy * rThick, b1[2] + p1.uz * rThick];
-      if (side < 0) {
-        putQuad(b0, b1, t1, t0, p0.rx, p0.ry, p0.rz, 0, p0.s, 0, p1.s, 1, p1.s, 1, p0.s, 2);
-      } else {
-        putQuad(b1, b0, t0, t1, -p0.rx, -p0.ry, -p0.rz, 0, p1.s, 0, p0.s, 1, p0.s, 1, p1.s, 2);
-      }
-    }
+    // Left glowing rail
+    const lb0x = p0.x - p0.rx * rOff + p0.ux * railH, lb0y = p0.y - p0.ry * rOff + p0.uy * railH, lb0z = p0.z - p0.rz * rOff + p0.uz * railH;
+    const lb1x = p1.x - p1.rx * rOff + p1.ux * railH, lb1y = p1.y - p1.ry * rOff + p1.uy * railH, lb1z = p1.z - p1.rz * rOff + p1.uz * railH;
+    putQuad(lb0x, lb0y, lb0z, lb1x, lb1y, lb1z, lb1x + p1.ux * rThick, lb1y + p1.uy * rThick, lb1z + p1.uz * rThick, lb0x + p0.ux * rThick, lb0y + p0.uy * rThick, lb0z + p0.uz * rThick, p0.rx, p0.ry, p0.rz, 0, s0, 0, s1, 1, s1, 1, s0, 2);
+
+    // Right glowing rail
+    const rb0x = p0.x + p0.rx * rOff + p0.ux * railH, rb0y = p0.y + p0.ry * rOff + p0.uy * railH, rb0z = p0.z + p0.rz * rOff + p0.uz * railH;
+    const rb1x = p1.x + p1.rx * rOff + p1.ux * railH, rb1y = p1.y + p1.ry * rOff + p1.uy * railH, rb1z = p1.z + p1.rz * rOff + p1.uz * railH;
+    putQuad(rb1x, rb1y, rb1z, rb0x, rb0y, rb0z, rb0x + p0.ux * rThick, rb0y + p0.uy * rThick, rb0z + p0.uz * rThick, rb1x + p1.ux * rThick, rb1y + p1.uy * rThick, rb1z + p1.uz * rThick, -p0.rx, -p0.ry, -p0.rz, 0, s1, 0, s0, 1, s0, 1, s1, 2);
   }
   return o / TRACK_FLOATS_PER_VERT;
 }
@@ -270,86 +269,80 @@ export const BEAM_STEPS = 24;
 export const BEAM_FLOATS_PER_VERT = 5;
 export const BEAM_MAX_FLOATS = 2 * 2 * BEAM_STEPS * 6 * BEAM_FLOATS_PER_VERT;
 
+// Pre-allocated zero-GC scratch buffers for writeBeamGeometry
+const _bPts = new Float32Array((BEAM_STEPS + 1) * 3);
+const _bRig = new Float32Array((BEAM_STEPS + 1) * 3);
+const _bUps = new Float32Array((BEAM_STEPS + 1) * 3);
+const _bTmp = {};
+
 export function writeBeamGeometry(track, ship, out) {
   let o = 0;
   const len = ship.beamLength;
-  // Wide blazing plume right out of the rear engine bay (scales with beat/thrust like Wipeout!)
   const baseWidth = 0.52 + ship.thrust * 0.34;
-  const tmpA = {};
-  const tmpB = {};
+  const engineUp = 0.12;
+  const engineBack = 2.38;
 
-  function putV(x, y, z, u, v) {
-    out[o++] = x; out[o++] = y; out[o++] = z;
-    out[o++] = u; out[o++] = v;
-  }
+  for (let sIdx = 0; sIdx < 2; sIdx++) {
+    const engineLat = (sIdx === 0 ? -0.58 : 0.58);
+    const lat = ship.lat + engineLat;
+    const h = ship.hoverH + engineUp;
 
-  // Left (-0.58) and Right (+0.58) twin engines
-  for (const side of [-1, 1]) {
-    const engineLat = side * 0.58;
-    const engineUp = 0.12;
-    const engineBack = 2.38;
-
-    // Precompute spine points following the exact track curve behind the ship
-    const pts = [];
-    const rights = [];
-    const ups = [];
     for (let i = 0; i <= BEAM_STEPS; i++) {
       const t = i / BEAM_STEPS;
       const s = ship.worldS - engineBack - t * len;
-      const fr = track.sampleAt(s, i % 2 === 0 ? tmpA : tmpB);
+      const fr = track.sampleAt(s, _bTmp);
 
-      // Blend from exact ship engine nozzle at t=0 smoothly onto track-following wake
-      const shipWeight = Math.pow(1 - t, 2.5);
-      const lat = ship.lat + engineLat;
-      const h = ship.hoverH + engineUp;
-
+      const shipWeight = (1 - t) * (1 - t) * Math.sqrt(1 - t);
       let px = fr.x + fr.rx * lat + fr.ux * h;
       let py = fr.y + fr.ry * lat + fr.uy * h;
       let pz = fr.z + fr.rz * lat + fr.uz * h;
 
       if (i === 0) {
-        // Exact engine nozzle position in world space
         px = ship.pos[0] + ship.right[0] * engineLat + ship.up[0] * engineUp - ship.forward[0] * engineBack;
         py = ship.pos[1] + ship.right[1] * engineLat + ship.up[1] * engineUp - ship.forward[1] * engineBack;
         pz = ship.pos[2] + ship.right[2] * engineLat + ship.up[2] * engineUp - ship.forward[2] * engineBack;
       } else if (shipWeight > 0.01) {
-        const sx = ship.pos[0] + ship.right[0] * engineLat + ship.up[0] * engineUp - ship.forward[0] * (engineBack + t * len);
-        const sy = ship.pos[1] + ship.right[1] * engineLat + ship.up[1] * engineUp - ship.forward[1] * (engineBack + t * len);
-        const sz = ship.pos[2] + ship.right[2] * engineLat + ship.up[2] * engineUp - ship.forward[2] * (engineBack + t * len);
-        px = px + (sx - px) * shipWeight * 0.5;
-        py = py + (sy - py) * shipWeight * 0.5;
-        pz = pz + (sz - pz) * shipWeight * 0.5;
+        const dBack = engineBack + t * len;
+        const sx = ship.pos[0] + ship.right[0] * engineLat + ship.up[0] * engineUp - ship.forward[0] * dBack;
+        const sy = ship.pos[1] + ship.right[1] * engineLat + ship.up[1] * engineUp - ship.forward[1] * dBack;
+        const sz = ship.pos[2] + ship.right[2] * engineLat + ship.up[2] * engineUp - ship.forward[2] * dBack;
+        const w = shipWeight * 0.5;
+        px += (sx - px) * w;
+        py += (sy - py) * w;
+        pz += (sz - pz) * w;
       }
 
-      pts.push([px, py, pz]);
-      rights.push([fr.rx, fr.ry, fr.rz]);
-      ups.push([fr.ux, fr.uy, fr.uz]);
+      const b = i * 3;
+      _bPts[b] = px; _bPts[b + 1] = py; _bPts[b + 2] = pz;
+      _bRig[b] = fr.rx; _bRig[b + 1] = fr.ry; _bRig[b + 2] = fr.rz;
+      _bUps[b] = fr.ux; _bUps[b + 1] = fr.uy; _bUps[b + 2] = fr.uz;
     }
 
-    // Two crossed ribbons (horizontal + vertical) for full 3D volume from any angle
     for (let orient = 0; orient < 2; orient++) {
+      const ax = orient === 0 ? _bRig : _bUps;
       for (let i = 0; i < BEAM_STEPS; i++) {
         const t0 = i / BEAM_STEPS;
         const t1 = (i + 1) / BEAM_STEPS;
         const w0 = baseWidth * (1.0 - t0 * 0.72);
         const w1 = baseWidth * (1.0 - t1 * 0.72);
 
-        const p0 = pts[i], p1 = pts[i + 1];
-        const a0 = orient === 0 ? rights[i] : ups[i];
-        const a1 = orient === 0 ? rights[i + 1] : ups[i + 1];
+        const b0 = i * 3, b1 = b0 + 3;
+        const p0x = _bPts[b0], p0y = _bPts[b0 + 1], p0z = _bPts[b0 + 2];
+        const p1x = _bPts[b1], p1y = _bPts[b1 + 1], p1z = _bPts[b1 + 2];
+        const a0x = ax[b0] * w0, a0y = ax[b0 + 1] * w0, a0z = ax[b0 + 2] * w0;
+        const a1x = ax[b1] * w1, a1y = ax[b1 + 1] * w1, a1z = ax[b1 + 2] * w1;
 
-        const l0x = p0[0] - a0[0] * w0, l0y = p0[1] - a0[1] * w0, l0z = p0[2] - a0[2] * w0;
-        const r0x = p0[0] + a0[0] * w0, r0y = p0[1] + a0[1] * w0, r0z = p0[2] + a0[2] * w0;
-        const l1x = p1[0] - a1[0] * w1, l1y = p1[1] - a1[1] * w1, l1z = p1[2] - a1[2] * w1;
-        const r1x = p1[0] + a1[0] * w1, r1y = p1[1] + a1[1] * w1, r1z = p1[2] + a1[2] * w1;
+        const l0x = p0x - a0x, l0y = p0y - a0y, l0z = p0z - a0z;
+        const r0x = p0x + a0x, r0y = p0y + a0y, r0z = p0z + a0z;
+        const l1x = p1x - a1x, l1y = p1y - a1y, l1z = p1z - a1z;
+        const r1x = p1x + a1x, r1y = p1y + a1y, r1z = p1z + a1z;
 
-        putV(l0x, l0y, l0z, t0, -1);
-        putV(r0x, r0y, r0z, t0,  1);
-        putV(r1x, r1y, r1z, t1,  1);
-
-        putV(l0x, l0y, l0z, t0, -1);
-        putV(r1x, r1y, r1z, t1,  1);
-        putV(l1x, l1y, l1z, t1, -1);
+        out[o++] = l0x; out[o++] = l0y; out[o++] = l0z; out[o++] = t0; out[o++] = -1;
+        out[o++] = r0x; out[o++] = r0y; out[o++] = r0z; out[o++] = t0; out[o++] =  1;
+        out[o++] = r1x; out[o++] = r1y; out[o++] = r1z; out[o++] = t1; out[o++] =  1;
+        out[o++] = l0x; out[o++] = l0y; out[o++] = l0z; out[o++] = t0; out[o++] = -1;
+        out[o++] = r1x; out[o++] = r1y; out[o++] = r1z; out[o++] = t1; out[o++] =  1;
+        out[o++] = l1x; out[o++] = l1y; out[o++] = l1z; out[o++] = t1; out[o++] = -1;
       }
     }
   }

@@ -49,6 +49,8 @@ export class Track {
     this.camRight = { x: 1, y: 0, z: 0 };
     this.camPitch = 0;
     this.camBank = 0;
+    this._camSample = {};
+    this._lookSample = {};
 
     this._ensureGenerated(0);
     this._rebuildSamples();
@@ -247,9 +249,9 @@ export class Track {
       sm.pitch = Math.asin(Math.max(-0.9, Math.min(0.9, fy)));
     }
 
-    // Update camera frame (slightly elevated above track + subtle shake/drift sync hooks)
-    const camFrame = this.sampleAt(this.dist);
-    const lookFrame = this.sampleAt(this.dist + 28.0);
+    // Update camera frame (zero per-frame object allocations!)
+    const camFrame = this.sampleAt(this.dist, this._camSample);
+    const lookFrame = this.sampleAt(this.dist + 28.0, this._lookSample);
     const camLat = this.camShakeX + this.camDrift * 0.45;
     const camUpOff = 4.4 + this.camShakeY + this.camDrift * 0.18;
     this.camPos.x = camFrame.x + camFrame.ux * camUpOff + camFrame.rx * camLat;

@@ -56,6 +56,24 @@ export class Renderer {
     this.blurProg = createProgram(gl, POST_VS, BLUR_FS);
     this.dofProg = createProgram(gl, POST_VS, DOF_COMPOSITE_FS);
 
+    // Cache ALL uniform locations ONCE (eliminates ~50 gl.getUniformLocation calls per frame!)
+    const loc = (p, names) => {
+      const m = {};
+      for (const n of names) m[n] = gl.getUniformLocation(p, n);
+      return m;
+    };
+    this.u = {
+      sky: loc(this.skyProg, ['uAspect', 'uTanHalfFov', 'uWorldYaw', 'uCamRight', 'uCamUp', 'uCamForward', 'uBeat', 'uTime']),
+      track: loc(this.trackProg, ['uView', 'uProj', 'uBeat', 'uAccent', 'uMaxDepth', 'uShipPos', 'uStabFlash', 'uRasterMode', 'uStepPulse']),
+      quad: loc(this.quadProg, ['uView', 'uProj', 'uMaxDepth', 'uAlphaCut', 'uTex']),
+      ship: loc(this.shipProg, ['uModel', 'uView', 'uProj', 'uCamPos', 'uBeamColor', 'uThrust', 'uMaxDepth']),
+      beam: loc(this.beamProg, ['uView', 'uProj', 'uBeamColor', 'uIntensity', 'uTime', 'uMaxDepth']),
+      bloomExt: loc(this.bloomExtProg, ['uScene']),
+      blur: loc(this.blurProg, ['uTex', 'uDir']),
+      dof: loc(this.dofProg, ['uScene', 'uDepth', 'uBloom', 'uTexel', 'uFocusDepth', 'uDofStrength', 'uBloomStrength', 'uSpeedBlur', 'uRasterMode', 'uStepPulse'])
+    };
+    this._tanHalfFov = Math.tan(FOV_RAD * 0.5);
+
     // Empty VAO for fullscreen triangle passes
     this.emptyVao = gl.createVertexArray();
 
@@ -170,10 +188,17 @@ export class Renderer {
 
   resize() {
     const gl = this.gl;
-    const dprCap = this.isMobile ? 1.5 : 2.0;
+    const dprCap = this.isMobile ? 1.25 : 1.5;
     const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
-    const w = Math.max(2, Math.floor(window.innerWidth * dpr));
-    const h = Math.max(2, Math.floor(window.innerHeight * dpr));
+    let w = Math.max(2, Math.floor(window.innerWidth * dpr));
+    let h = Math.max(2, Math.floor(window.innerHeight * dpr));
+    // Cap internal fillrate at ~1080p pixel budget so 4K/Retina screens stay locked at 60-120 FPS
+    const maxPixels = this.isMobile ? 1100000 : 2073600;
+    if (w * h > maxPixels) {
+      const s = Math.sqrt(maxPixels / (w * h));
+      w = Math.max(2, Math.floor(w * s));
+      h = Math.max(2, Math.floor(h * s));
+    }
     if (w === this.width && h === this.height && this.sceneFbo) return;
 
     this.width = w;
@@ -186,45 +211,30 @@ export class Renderer {
     destroyFBO(gl, this.bloomFboB);
 
     this.sceneFbo = createSceneFBO(gl, w, h);
-    const bw = Math.max(2, w >> 1);
-    const bh = Math.max(2, h >> 1);
+    // Quarter-res bloom FBOs: 4x faster GPU bandwidth & smoother halo!
+    const bw = Math.max(2, w >> 2);
+    const bh = Math.max(2, h >> 2);
     this.bloomFboA = createSimpleFBO(gl, bw, bh);
     this.bloomFboB = createSimpleFBO(gl, bw, bh);
 
     mat4Perspective(this.projMat, FOV_RAD, w / h, 0.5, MAX_DEPTH + 40);
   }
 
-  _pushQuad(buf, offset, c, right, up, halfW, halfH, u0, v0, u1, v1, glow) {
-    // 4 corners: bottom-left, bottom-right, top-right, top-left
-    const blx = c[0] - right[0] * halfW - up[0] * halfH;
-    const bly = c[1] - right[1] * halfW - up[1] * halfH;
-    const blz = c[2] - right[2] * halfW - up[2] * halfH;
+  _pushQuad(buf, o, cx, cy, cz, rx, ry, rz, ux, uy, uz, halfW, halfH, u0, v0, u1, v1, glow) {
+    const rwx = rx * halfW, rwy = ry * halfW, rwz = rz * halfW;
+    const uhx = ux * halfH, uhy = uy * halfH, uhz = uz * halfH;
 
-    const brx = c[0] + right[0] * halfW - up[0] * halfH;
-    const bry = c[1] + right[1] * halfW - up[1] * halfH;
-    const brz = c[2] + right[2] * halfW - up[2] * halfH;
+    const blx = cx - rwx - uhx, bly = cy - rwy - uhy, blz = cz - rwz - uhz;
+    const brx = cx + rwx - uhx, bry = cy + rwy - uhy, brz = cz + rwz - uhz;
+    const trx = cx + rwx + uhx, try_ = cy + rwy + uhy, trz = cz + rwz + uhz;
+    const tlx = cx - rwx + uhx, tly = cy - rwy + uhy, tlz = cz - rwz + uhz;
 
-    const trx = c[0] + right[0] * halfW + up[0] * halfH;
-    const try_ = c[1] + right[1] * halfW + up[1] * halfH;
-    const trz = c[2] + right[2] * halfW + up[2] * halfH;
-
-    const tlx = c[0] - right[0] * halfW + up[0] * halfH;
-    const tly = c[1] - right[1] * halfW + up[1] * halfH;
-    const tlz = c[2] - right[2] * halfW + up[2] * halfH;
-
-    let o = offset;
-    const put = (x, y, z, u, v) => {
-      buf[o++] = x; buf[o++] = y; buf[o++] = z;
-      buf[o++] = u; buf[o++] = v; buf[o++] = glow;
-    };
-    // Canvas Y=0 is top, so top corners get v0, bottom corners get v1
-    put(blx, bly, blz, u0, v1);
-    put(brx, bry, brz, u1, v1);
-    put(trx, try_, trz, u1, v0);
-
-    put(blx, bly, blz, u0, v1);
-    put(trx, try_, trz, u1, v0);
-    put(tlx, tly, tlz, u0, v0);
+    buf[o++] = blx; buf[o++] = bly; buf[o++] = blz; buf[o++] = u0; buf[o++] = v1; buf[o++] = glow;
+    buf[o++] = brx; buf[o++] = bry; buf[o++] = brz; buf[o++] = u1; buf[o++] = v1; buf[o++] = glow;
+    buf[o++] = trx; buf[o++] = try_; buf[o++] = trz; buf[o++] = u1; buf[o++] = v0; buf[o++] = glow;
+    buf[o++] = blx; buf[o++] = bly; buf[o++] = blz; buf[o++] = u0; buf[o++] = v1; buf[o++] = glow;
+    buf[o++] = trx; buf[o++] = try_; buf[o++] = trz; buf[o++] = u1; buf[o++] = v0; buf[o++] = glow;
+    buf[o++] = tlx; buf[o++] = tly; buf[o++] = tlz; buf[o++] = u0; buf[o++] = v0; buf[o++] = glow;
     return o;
   }
 
@@ -250,39 +260,26 @@ export class Renderer {
       const u0 = col / cols, u1 = (col + 1) / cols;
       const v0 = row / rows, v1 = (row + 1) / rows;
 
-      // Every 5th billboard is an overhead Wipeout arch gantry; others alternate L/R sides
       if (idx % 5 === 0) {
-        const cx = fr.x + fr.ux * 9.8;
-        const cy = fr.y + fr.uy * 9.8;
-        const cz = fr.z + fr.uz * 9.8;
         o = this._pushQuad(
           this.quadBuf, o,
-          [cx, cy, cz],
-          [fr.rx, fr.ry, fr.rz],
-          [fr.ux, fr.uy, fr.uz],
-          9.6, 2.35,
-          u0, v0, u1, v1, 0.12
+          fr.x + fr.ux * 9.8, fr.y + fr.uy * 9.8, fr.z + fr.uz * 9.8,
+          fr.rx, fr.ry, fr.rz, fr.ux, fr.uy, fr.uz,
+          9.6, 2.35, u0, v0, u1, v1, 0.12
         );
       } else {
         const side = (idx % 2 === 0) ? -1 : 1;
-        const offsetOut = TRACK_HALF_WIDTH + 4.4;
-        const cx = fr.x + fr.rx * (side * offsetOut) + fr.ux * 4.2;
-        const cy = fr.y + fr.ry * (side * offsetOut) + fr.uy * 4.2;
-        const cz = fr.z + fr.rz * (side * offsetOut) + fr.uz * 4.2;
-        // Slight inward toe-in angle so billboards face the oncoming pilot
+        const offsetOut = side * (TRACK_HALF_WIDTH + 4.4);
         const toe = side * 0.28;
         const ct = Math.cos(toe), st = Math.sin(toe);
-        const rx = fr.rx * ct - fr.fx * st;
-        const ry = fr.ry * ct - fr.fy * st;
-        const rz = fr.rz * ct - fr.fz * st;
-
         o = this._pushQuad(
           this.quadBuf, o,
-          [cx, cy, cz],
-          [rx, ry, rz],
-          [fr.ux, fr.uy, fr.uz],
-          4.8, 2.4,
-          u0, v0, u1, v1, 0.08
+          fr.x + fr.rx * offsetOut + fr.ux * 4.2,
+          fr.y + fr.ry * offsetOut + fr.uy * 4.2,
+          fr.z + fr.rz * offsetOut + fr.uz * 4.2,
+          fr.rx * ct - fr.fx * st, fr.ry * ct - fr.fy * st, fr.rz * ct - fr.fz * st,
+          fr.ux, fr.uy, fr.uz,
+          4.8, 2.4, u0, v0, u1, v1, 0.08
         );
       }
     }
@@ -294,7 +291,6 @@ export class Renderer {
     let o = 0;
     const fr = this._tmpSample;
 
-    // Update & prune racing lyric words
     for (let i = this.activeLyrics.length - 1; i >= 0; i--) {
       const l = this.activeLyrics[i];
       l.s += track.speed * l.speedRatio * dt;
@@ -303,32 +299,28 @@ export class Renderer {
       }
     }
 
-    // Sort back-to-front by worldS for clean alpha blending
-    this.activeLyrics.sort((a, b) => b.s - a.s);
+    if (this.activeLyrics.length > 1) {
+      this.activeLyrics.sort((a, b) => b.s - a.s);
+    }
 
-    for (const l of this.activeLyrics) {
+    for (let i = 0; i < this.activeLyrics.length; i++) {
+      const l = this.activeLyrics[i];
       if (o + 36 > this.quadBuf.length) break;
       const uv = this.lyricAtlas.map.get(l.word);
       if (!uv) continue;
       if (l.s > track.dist + AHEAD_SEGS * SEG_LEN - 10) continue;
 
       track.sampleAt(l.s, fr);
-      const cx = fr.x + fr.rx * l.lat + fr.ux * l.height;
-      const cy = fr.y + fr.ry * l.lat + fr.uy * l.height;
-      const cz = fr.z + fr.rz * l.lat + fr.uz * l.height;
-
-      // Flash bright neon as the racing word passes the ship's surge zone
       const distToShip = Math.abs(l.s - ship.worldS);
       const glow = Math.max(0.15, Math.exp(-distToShip * 0.045) * 1.15);
 
       o = this._pushQuad(
         this.quadBuf, o,
-        [cx, cy, cz],
-        [fr.rx, fr.ry, fr.rz],
-        [fr.ux, fr.uy, fr.uz],
-        4.6, 1.72,
-        uv.u0, uv.v0, uv.u1, uv.v1,
-        glow
+        fr.x + fr.rx * l.lat + fr.ux * l.height,
+        fr.y + fr.ry * l.lat + fr.uy * l.height,
+        fr.z + fr.rz * l.lat + fr.uz * l.height,
+        fr.rx, fr.ry, fr.rz, fr.ux, fr.uy, fr.uz,
+        4.6, 1.72, uv.u0, uv.v0, uv.u1, uv.v1, glow
       );
     }
     return o / 6;
@@ -336,12 +328,11 @@ export class Renderer {
 
   render(track, ship, music, trackMeta, dt, nowSec) {
     const gl = this.gl;
-    this.resize();
+    const U = this.u;
 
     mat4LookAtBasis(this.viewMat, track.camPos, track.camRight, track.camUp, track.camForward);
     mat4FromBasis(this.shipModelMat, ship.pos, ship.right, ship.up, ship.forward, 1.0);
 
-    // Compute exact view-space distance of the ship for dynamic DoF focus!
     const dx = ship.pos[0] - track.camPos.x;
     const dy = ship.pos[1] - track.camPos.y;
     const dz = ship.pos[2] - track.camPos.z;
@@ -362,19 +353,19 @@ export class Renderer {
     gl.clearDepth(1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    // 1A. Sky + Distant City Skyline (true 3D ray, zero curve warping)
+    // 1A. Sky + Distant City Skyline
     gl.disable(gl.DEPTH_TEST);
     gl.depthMask(false);
     gl.disable(gl.BLEND);
     gl.useProgram(this.skyProg);
-    gl.uniform1f(gl.getUniformLocation(this.skyProg, 'uAspect'), this.width / this.height);
-    gl.uniform1f(gl.getUniformLocation(this.skyProg, 'uTanHalfFov'), Math.tan(FOV_RAD * 0.5));
-    gl.uniform1f(gl.getUniformLocation(this.skyProg, 'uWorldYaw'), track.worldYaw);
-    gl.uniform3f(gl.getUniformLocation(this.skyProg, 'uCamRight'), track.camRight.x, track.camRight.y, track.camRight.z);
-    gl.uniform3f(gl.getUniformLocation(this.skyProg, 'uCamUp'), track.camUp.x, track.camUp.y, track.camUp.z);
-    gl.uniform3f(gl.getUniformLocation(this.skyProg, 'uCamForward'), track.camForward.x, track.camForward.y, track.camForward.z);
-    gl.uniform1f(gl.getUniformLocation(this.skyProg, 'uBeat'), music.beatPulse);
-    gl.uniform1f(gl.getUniformLocation(this.skyProg, 'uTime'), nowSec);
+    gl.uniform1f(U.sky.uAspect, this.width / this.height);
+    gl.uniform1f(U.sky.uTanHalfFov, this._tanHalfFov);
+    gl.uniform1f(U.sky.uWorldYaw, track.worldYaw);
+    gl.uniform3f(U.sky.uCamRight, track.camRight.x, track.camRight.y, track.camRight.z);
+    gl.uniform3f(U.sky.uCamUp, track.camUp.x, track.camUp.y, track.camUp.z);
+    gl.uniform3f(U.sky.uCamForward, track.camForward.x, track.camForward.y, track.camForward.z);
+    gl.uniform1f(U.sky.uBeat, music.beatPulse);
+    gl.uniform1f(U.sky.uTime, nowSec);
     gl.bindVertexArray(this.emptyVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
@@ -385,32 +376,32 @@ export class Renderer {
     gl.depthMask(true);
     const trackVertCount = writeTrackGeometry(track, this.trackBuf);
     gl.useProgram(this.trackProg);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.trackProg, 'uView'), false, this.viewMat);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.trackProg, 'uProj'), false, this.projMat);
-    gl.uniform1f(gl.getUniformLocation(this.trackProg, 'uBeat'), music.beatPulse);
-    gl.uniform3fv(gl.getUniformLocation(this.trackProg, 'uAccent'), beamCol);
-    gl.uniform1f(gl.getUniformLocation(this.trackProg, 'uMaxDepth'), MAX_DEPTH);
-    gl.uniform3fv(gl.getUniformLocation(this.trackProg, 'uShipPos'), ship.pos);
+    gl.uniformMatrix4fv(U.track.uView, false, this.viewMat);
+    gl.uniformMatrix4fv(U.track.uProj, false, this.projMat);
+    gl.uniform1f(U.track.uBeat, music.beatPulse);
+    gl.uniform3fv(U.track.uAccent, beamCol);
+    gl.uniform1f(U.track.uMaxDepth, MAX_DEPTH);
+    gl.uniform3fv(U.track.uShipPos, ship.pos);
     const stabFlash = Math.min(1.5, (music.stabPulse || 0) + (music.accentTrigger || 0) * 0.9);
-    gl.uniform1f(gl.getUniformLocation(this.trackProg, 'uStabFlash'), stabFlash);
-    gl.uniform1f(gl.getUniformLocation(this.trackProg, 'uRasterMode'), music.rasterMode || 0);
-    gl.uniform1f(gl.getUniformLocation(this.trackProg, 'uStepPulse'), this.stepPulse);
+    gl.uniform1f(U.track.uStabFlash, stabFlash);
+    gl.uniform1f(U.track.uRasterMode, music.rasterMode || 0);
+    gl.uniform1f(U.track.uStepPulse, this.stepPulse);
     gl.bindVertexArray(this.trackVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.trackVbo);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.trackBuf.subarray(0, trackVertCount * TRACK_FLOATS_PER_VERT));
     gl.drawArrays(gl.TRIANGLES, 0, trackVertCount);
 
-    // 1C. 3D Trackside Billboards (exact worldS speed match + GPU DoF)
+    // 1C. 3D Trackside Billboards
     const bbVertCount = this._buildBillboards(track);
     if (bbVertCount > 0) {
       gl.useProgram(this.quadProg);
-      gl.uniformMatrix4fv(gl.getUniformLocation(this.quadProg, 'uView'), false, this.viewMat);
-      gl.uniformMatrix4fv(gl.getUniformLocation(this.quadProg, 'uProj'), false, this.projMat);
-      gl.uniform1f(gl.getUniformLocation(this.quadProg, 'uMaxDepth'), MAX_DEPTH);
-      gl.uniform1f(gl.getUniformLocation(this.quadProg, 'uAlphaCut'), 0.5);
+      gl.uniformMatrix4fv(U.quad.uView, false, this.viewMat);
+      gl.uniformMatrix4fv(U.quad.uProj, false, this.projMat);
+      gl.uniform1f(U.quad.uMaxDepth, MAX_DEPTH);
+      gl.uniform1f(U.quad.uAlphaCut, 0.5);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.billboardAtlas.tex);
-      gl.uniform1i(gl.getUniformLocation(this.quadProg, 'uTex'), 0);
+      gl.uniform1i(U.quad.uTex, 0);
       gl.bindVertexArray(this.quadVao);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVbo);
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.quadBuf.subarray(0, bbVertCount * 6));
@@ -419,88 +410,88 @@ export class Renderer {
 
     // 1D. 3D Wipeout Craft
     gl.useProgram(this.shipProg);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.shipProg, 'uModel'), false, this.shipModelMat);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.shipProg, 'uView'), false, this.viewMat);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.shipProg, 'uProj'), false, this.projMat);
-    gl.uniform3f(gl.getUniformLocation(this.shipProg, 'uCamPos'), track.camPos.x, track.camPos.y, track.camPos.z);
-    gl.uniform3fv(gl.getUniformLocation(this.shipProg, 'uBeamColor'), beamCol);
-    gl.uniform1f(gl.getUniformLocation(this.shipProg, 'uThrust'), ship.thrust);
-    gl.uniform1f(gl.getUniformLocation(this.shipProg, 'uMaxDepth'), MAX_DEPTH);
+    gl.uniformMatrix4fv(U.ship.uModel, false, this.shipModelMat);
+    gl.uniformMatrix4fv(U.ship.uView, false, this.viewMat);
+    gl.uniformMatrix4fv(U.ship.uProj, false, this.projMat);
+    gl.uniform3f(U.ship.uCamPos, track.camPos.x, track.camPos.y, track.camPos.z);
+    gl.uniform3fv(U.ship.uBeamColor, beamCol);
+    gl.uniform1f(U.ship.uThrust, ship.thrust);
+    gl.uniform1f(U.ship.uMaxDepth, MAX_DEPTH);
     gl.bindVertexArray(this.shipVao);
     gl.drawArrays(gl.TRIANGLES, 0, this.shipVertCount);
 
-    // 1E. 3D Racing Karaoke Lyric Banners (alpha blended, GPU DoF depth written)
+    // 1E. 3D Racing Karaoke Lyric Banners
     const lyricVertCount = this._buildLyrics(track, ship, dt);
     if (lyricVertCount > 0) {
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.depthMask(false);
       gl.useProgram(this.quadProg);
-      gl.uniformMatrix4fv(gl.getUniformLocation(this.quadProg, 'uView'), false, this.viewMat);
-      gl.uniformMatrix4fv(gl.getUniformLocation(this.quadProg, 'uProj'), false, this.projMat);
-      gl.uniform1f(gl.getUniformLocation(this.quadProg, 'uMaxDepth'), MAX_DEPTH);
-      gl.uniform1f(gl.getUniformLocation(this.quadProg, 'uAlphaCut'), 0.05);
+      gl.uniformMatrix4fv(U.quad.uView, false, this.viewMat);
+      gl.uniformMatrix4fv(U.quad.uProj, false, this.projMat);
+      gl.uniform1f(U.quad.uMaxDepth, MAX_DEPTH);
+      gl.uniform1f(U.quad.uAlphaCut, 0.05);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.lyricAtlas.tex);
-      gl.uniform1i(gl.getUniformLocation(this.quadProg, 'uTex'), 0);
+      gl.uniform1i(U.quad.uTex, 0);
       gl.bindVertexArray(this.quadVao);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVbo);
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.quadBuf.subarray(0, lyricVertCount * 6));
       gl.drawArrays(gl.TRIANGLES, 0, lyricVertCount);
     }
 
-    // 1F. Continuous Bright Twin Thruster Beams (additive glow ribbons along spline)
+    // 1F. Continuous Bright Twin Thruster Beams
     const beamVertCount = writeBeamGeometry(track, ship, this.beamBuf);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE);
     gl.depthMask(false);
-    // Only write additive glow into COLOR_ATTACHMENT0 (keep underlying depth intact for DoF)
     gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.NONE]);
     gl.useProgram(this.beamProg);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.beamProg, 'uView'), false, this.viewMat);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.beamProg, 'uProj'), false, this.projMat);
-    gl.uniform3fv(gl.getUniformLocation(this.beamProg, 'uBeamColor'), beamCol);
-    gl.uniform1f(gl.getUniformLocation(this.beamProg, 'uIntensity'), ship.beamIntensity);
-    gl.uniform1f(gl.getUniformLocation(this.beamProg, 'uTime'), nowSec);
-    gl.uniform1f(gl.getUniformLocation(this.beamProg, 'uMaxDepth'), MAX_DEPTH);
+    gl.uniformMatrix4fv(U.beam.uView, false, this.viewMat);
+    gl.uniformMatrix4fv(U.beam.uProj, false, this.projMat);
+    gl.uniform3fv(U.beam.uBeamColor, beamCol);
+    gl.uniform1f(U.beam.uIntensity, ship.beamIntensity);
+    gl.uniform1f(U.beam.uTime, nowSec);
+    gl.uniform1f(U.beam.uMaxDepth, MAX_DEPTH);
     gl.bindVertexArray(this.beamVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.beamVbo);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.beamBuf.subarray(0, beamVertCount * BEAM_FLOATS_PER_VERT));
     gl.drawArrays(gl.TRIANGLES, 0, beamVertCount);
 
     // =========================================================================
-    // PASS 2: Half-Res Bloom Extract & Separable Gaussian Blur
+    // PASS 2: Quarter-Res Bloom Extract & Separable Gaussian Blur
     // =========================================================================
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
     gl.bindVertexArray(this.emptyVao);
 
-    // 2A. Extract bright highlights
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomFboA.fbo);
     gl.viewport(0, 0, this.bloomFboA.w, this.bloomFboA.h);
     gl.useProgram(this.bloomExtProg);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.sceneFbo.colorTex);
-    gl.uniform1i(gl.getUniformLocation(this.bloomExtProg, 'uScene'), 0);
+    gl.uniform1i(U.bloomExt.uScene, 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-    // 2B. Two-iteration Separable Gaussian Blur (tight glow + wider luminous halo)
     gl.useProgram(this.blurProg);
-    gl.uniform1i(gl.getUniformLocation(this.blurProg, 'uTex'), 0);
-    for (const spread of [1.6, 3.4]) {
+    gl.uniform1i(U.blur.uTex, 0);
+    const invBw = 1.0 / this.bloomFboA.w;
+    const invBh = 1.0 / this.bloomFboA.h;
+    for (let p = 0; p < 2; p++) {
+      const spread = p === 0 ? 1.25 : 2.6;
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomFboB.fbo);
       gl.bindTexture(gl.TEXTURE_2D, this.bloomFboA.tex);
-      gl.uniform2f(gl.getUniformLocation(this.blurProg, 'uDir'), spread / this.bloomFboA.w, 0.0);
+      gl.uniform2f(U.blur.uDir, spread * invBw, 0.0);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
 
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomFboA.fbo);
       gl.bindTexture(gl.TEXTURE_2D, this.bloomFboB.tex);
-      gl.uniform2f(gl.getUniformLocation(this.blurProg, 'uDir'), 0.0, spread / this.bloomFboA.h);
+      gl.uniform2f(U.blur.uDir, 0.0, spread * invBh);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
 
     // =========================================================================
-    // PASS 3: Full-Res 16-Tap Vogel-Disk Depth of Field + Bloom Composite
+    // PASS 3: Full-Res 12-Tap Precomputed Vogel-Disk Depth of Field + Bloom
     // =========================================================================
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.width, this.height);
@@ -508,30 +499,30 @@ export class Renderer {
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.sceneFbo.colorTex);
-    gl.uniform1i(gl.getUniformLocation(this.dofProg, 'uScene'), 0);
+    gl.uniform1i(U.dof.uScene, 0);
 
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.sceneFbo.depthInfoTex);
-    gl.uniform1i(gl.getUniformLocation(this.dofProg, 'uDepth'), 1);
+    gl.uniform1i(U.dof.uDepth, 1);
 
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, this.bloomFboA.tex);
-    gl.uniform1i(gl.getUniformLocation(this.dofProg, 'uBloom'), 2);
+    gl.uniform1i(U.dof.uBloom, 2);
 
-    gl.uniform2f(gl.getUniformLocation(this.dofProg, 'uTexel'), 1.0 / this.width, 1.0 / this.height);
-    gl.uniform1f(gl.getUniformLocation(this.dofProg, 'uFocusDepth'), focusDepth);
+    gl.uniform2f(U.dof.uTexel, 1.0 / this.width, 1.0 / this.height);
+    gl.uniform1f(U.dof.uFocusDepth, focusDepth);
     const dofAmt = music.mode === 'retrowave' ? (0.76 + (music.padLFO || 0.5) * 0.16) : 0.82;
-    gl.uniform1f(gl.getUniformLocation(this.dofProg, 'uDofStrength'), dofAmt);
+    gl.uniform1f(U.dof.uDofStrength, dofAmt);
     const bloomAmt = 0.56 + music.kick * 0.14 + (music.dropFlash || 0) * 0.22 +
       (music.stabPulse || 0) * 0.18 + (music.accentTrigger || 0) * 0.16 +
       (music.mode === 'retrowave' ? (music.subBassEnvelope || 0) * 0.12 : 0);
-    gl.uniform1f(gl.getUniformLocation(this.dofProg, 'uBloomStrength'), bloomAmt);
+    gl.uniform1f(U.dof.uBloomStrength, bloomAmt);
     const speedBlur = music.mode === 'acid'
       ? Math.min(1.0, (music.filterCutoffNormalized || 0) * 0.65 + (music.accentTrigger || 0) * 0.45)
       : Math.min(0.65, (music.bassEnergy || 0) * 0.35 + (music.dropFlash || 0) * 0.35);
-    gl.uniform1f(gl.getUniformLocation(this.dofProg, 'uSpeedBlur'), speedBlur);
-    gl.uniform1f(gl.getUniformLocation(this.dofProg, 'uRasterMode'), music.rasterMode || 0);
-    gl.uniform1f(gl.getUniformLocation(this.dofProg, 'uStepPulse'), this.stepPulse);
+    gl.uniform1f(U.dof.uSpeedBlur, speedBlur);
+    gl.uniform1f(U.dof.uRasterMode, music.rasterMode || 0);
+    gl.uniform1f(U.dof.uStepPulse, this.stepPulse);
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }

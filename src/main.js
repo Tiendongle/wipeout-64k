@@ -83,6 +83,20 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// Lightweight frame-time telemetry for verifying smooth stutter-free performance
+const perf = {
+  frames: 0,
+  jankCount: 0,
+  avgMs: 16.6,
+  maxMs: 0,
+  fps: 60,
+  _ring: new Float32Array(120),
+  _idx: 0,
+  reset() {
+    this.frames = 0; this.jankCount = 0; this.maxMs = 0; this._idx = 0;
+  }
+};
+
 // Expose clean debug/visual-sync hook API for all 5 tracks
 window.__WIPEOUT = {
   synth,
@@ -90,6 +104,7 @@ window.__WIPEOUT = {
   ship,
   renderer,
   hud,
+  perf,
   hooks: synth.telemetry
 };
 
@@ -99,9 +114,28 @@ let idleWordIdx = 0;
 
 let lastMs = performance.now();
 function frame(nowMs) {
-  const dt = Math.min(0.05, Math.max(0.001, (nowMs - lastMs) * 0.001));
+  const rawMs = nowMs - lastMs;
   lastMs = nowMs;
+  const dt = Math.min(0.05, Math.max(0.001, rawMs * 0.001));
   const nowSec = nowMs * 0.001;
+
+  if (rawMs > 0 && rawMs < 250) {
+    perf._ring[perf._idx] = rawMs;
+    perf._idx = (perf._idx + 1) % 120;
+    perf.frames++;
+    if (rawMs > 34) perf.jankCount++;
+    if (perf.frames > 10 && rawMs > perf.maxMs) perf.maxMs = rawMs;
+    if ((perf.frames & 15) === 0) {
+      const n = Math.min(perf.frames, 120);
+      let sum = 0;
+      for (let i = 0; i < n; i++) sum += perf._ring[i];
+      perf.avgMs = +(sum / n).toFixed(2);
+      perf.fps = +(1000 / Math.max(1, perf.avgMs)).toFixed(1);
+      if (location.hash === '#perf') {
+        document.title = `FPS:${perf.fps} AVG:${perf.avgMs}ms MAX:${perf.maxMs.toFixed(1)}ms JANK:${perf.jankCount}/${perf.frames} RES:${renderer.width}x${renderer.height}`;
+      }
+    }
+  }
 
   const music = synth.update(dt, nowSec);
 

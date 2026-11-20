@@ -35,8 +35,9 @@ export class Ship {
     this.beamLength = 12.0;
     this.beamIntensity = 0.6;
 
-    // Reusable sample object
+    // Reusable sample objects (zero per-frame allocations!)
     this._sample = {};
+    this._lookSample = {};
     this._prevSlope = 0;
     this._lastKickId = 0;
     this._lastDropId = 0;
@@ -87,7 +88,7 @@ export class Ship {
     const frame = track.sampleAt(this.worldS, this._sample);
 
     // 2. Autonomous racing line: hugs inside apex of curves + subtle organic weave
-    const lookAhead = track.sampleAt(this.worldS + 26.0, {});
+    const lookAhead = track.sampleAt(this.worldS + 26.0, this._lookSample);
     const apexTarget = Math.max(-3.6, Math.min(3.6, lookAhead.curv * 290.0)) +
       Math.sin(nowSec * 0.75) * 0.85;
     const latForce = (apexTarget - this.lat) * 8.5 - this.latVel * 4.8;

@@ -41,7 +41,7 @@ export function createSceneFBO(gl, w, h) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
 
   const colorTex = createTexture2D(gl, w, h, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR);
-  const depthInfoTex = createTexture2D(gl, w, h, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, gl.NEAREST);
+  const depthInfoTex = createTexture2D(gl, w, h, gl.R8, gl.RED, gl.UNSIGNED_BYTE, gl.NEAREST);
 
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, colorTex, 0);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, depthInfoTex, 0);

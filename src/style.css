@@ -5,7 +5,7 @@
   --cyan: #00f0ff;
   --amber: #ffb800;
   --pink: #ff5ca8;
-  --glass: rgba(10, 10, 18, 0.72);
+  --glass: rgba(10, 10, 18, 0.84);
   --line: rgba(255, 255, 255, 0.22);
 }
 
@@ -61,8 +61,8 @@ html, body {
   border: 1px solid var(--line);
   border-left: 4px solid var(--hot);
   padding: 8px 12px;
-  backdrop-filter: blur(6px);
   clip-path: polygon(0 0, 100% 0, 96% 100%, 0 100%);
+  contain: layout style paint;
 }
 
 .tdr-logo {
@@ -74,12 +74,10 @@ html, body {
 
 .tdr-eye {
   fill: #9e141e;
-  transition: fill 0.04s linear, filter 0.04s linear;
 }
 
 .tdr-eye.flash {
-  fill: #ff1828;
-  filter: drop-shadow(0 0 6px #ff1828) drop-shadow(0 0 14px #ff4055);
+  fill: #ff263a;
 }
 
 .tdr-meta {
@@ -130,6 +128,7 @@ html, body {
   padding: 6px 14px 6px 18px;
   text-align: right;
   clip-path: polygon(8% 0, 100% 0, 100% 100%, 0 100%);
+  contain: layout style paint;
 }
 
 .speed-num {
@@ -176,7 +175,6 @@ html, body {
   background: var(--glass);
   border: 1px solid var(--line);
   padding: 6px 8px;
-  backdrop-filter: blur(6px);
 }
 
 .btn {
@@ -224,6 +222,7 @@ html, body {
   padding: 6px 14px;
   min-width: 220px;
   text-align: right;
+  contain: layout style paint;
 }
 
 .karaoke-label {
@@ -257,6 +256,7 @@ html, body {
 
 .start-overlay.hidden {
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
 }
 
