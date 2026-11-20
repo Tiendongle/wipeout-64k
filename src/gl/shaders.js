@@ -421,16 +421,24 @@ void main() {
   vec3 col;
   float a = tex.a;
   if (uLyricMode > 0.5) {
+    // RGB-channel-encoded karaoke lyric: R = outline, B = offset shadow, G = solid fill
+    float outline = tex.r;
+    float fillM = tex.g;
+    float shad = tex.b;
     if (vGlow < -4.0) {
-      // Faint trailing karaoke echo ghost
-      col = mix(tex.rgb, uAccent, 0.72) * 1.15;
-      a *= 0.28;
+      // Faint trailing wireframe echo ghost
+      col = mix(vec3(0.0, 0.92, 1.0), uAccent, 0.45) * 1.25;
+      a = outline * 0.30;
     } else {
-      // Hardware-interpolated left-to-right karaoke fill sweep!
-      float fill = smoothstep(-0.08, 0.06, vGlow);
-      vec3 unlit = tex.rgb * 0.68;
-      vec3 lit = mix(tex.rgb, mix(vec3(1.0), uAccent, 0.42), 0.55) * 1.55;
-      col = mix(unlit, lit, fill);
+      float sweep = smoothstep(-0.08, 0.06, vGlow);
+      float cov = max(outline * 0.85, max(fillM, shad) * sweep);
+      if (cov < 0.05) discard;
+      vec3 baseCol = vec3(0.92, 0.91, 0.88);
+      vec3 shadCol = mix(vec3(0.0, 0.92, 1.0), uAccent, 0.30) * 1.15;
+      vec3 litCol = mix(uAccent, vec3(1.0, 0.96, 0.90), 0.42) * 1.50;
+      col = mix(baseCol, shadCol, shad * sweep);
+      col = mix(col, litCol, fillM * sweep);
+      a = cov;
     }
   } else {
     col = tex.rgb * (1.0 + vGlow * 0.85);
@@ -566,6 +574,7 @@ uniform vec2 uShipUv;
 uniform float uRasterMode;
 uniform float uStepPulse;
 uniform float uGlitch;
+uniform float uDropFlash;
 uniform float uTime;
 
 out vec4 outColor;
@@ -685,6 +694,9 @@ void main() {
     float scan = sin(vUv.y * 720.0) * 0.5 + 0.5;
     col *= 1.0 - uRasterMode * (0.065 + 0.03 * uStepPulse) * (1.0 - scan);
   }
+
+  // Crisp white drop-impact flash right on bar 0 of major beat drops
+  col += vec3(uDropFlash * 0.34);
 
   // Clean gentle filmic shoulder (preserves Wipeout neon vibrancy)
   col = col / (1.0 + col * 0.25);

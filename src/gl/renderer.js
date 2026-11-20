@@ -75,7 +75,7 @@ export class Renderer {
       bloomExt: loc(this.bloomExtProg, ['uScene']),
       blur: loc(this.blurProg, ['uTex', 'uDir']),
       radialBloom: loc(this.radialBloomProg, ['uTex', 'uCenter', 'uStrength']),
-      dof: loc(this.dofProg, ['uScene', 'uDepth', 'uBloom', 'uTexel', 'uFocusDepth', 'uDofStrength', 'uBloomStrength', 'uSpeedBlur', 'uBlurCenter', 'uShipUv', 'uRasterMode', 'uStepPulse', 'uGlitch', 'uTime'])
+      dof: loc(this.dofProg, ['uScene', 'uDepth', 'uBloom', 'uTexel', 'uFocusDepth', 'uDofStrength', 'uBloomStrength', 'uSpeedBlur', 'uBlurCenter', 'uShipUv', 'uRasterMode', 'uStepPulse', 'uGlitch', 'uDropFlash', 'uTime'])
     };
     this._tanHalfFov = Math.tan(FOV_RAD * 0.5);
     this._padData = new Float32Array(32);
@@ -713,6 +713,7 @@ export class Renderer {
     gl.uniform1f(U.dof.uStepPulse, this.stepPulse);
     const glitchAmt = this.glitchOn ? 1.0 : ((music.dropFlash || 0) > 0.72 ? ((music.dropFlash - 0.72) * 3.5) : 0.0);
     gl.uniform1f(U.dof.uGlitch, glitchAmt);
+    gl.uniform1f(U.dof.uDropFlash, music.dropFlash || 0);
     gl.uniform1f(U.dof.uTime, nowSec);
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);

@@ -465,7 +465,7 @@ export const TRACKS = [
   },
 
   // =========================================================================
-  // 06 // GRAVITY LEAGUE — 2002 Electro-House Cracktro (128 BPM, A minor)
+  // 06 // REPUBLIC GRAVITY — 2002 Electro-House Cracktro (128 BPM, A minor)
   // =========================================================================
   {
     id: 'gravity-league',
@@ -474,76 +474,13 @@ export const TRACKS = [
     subtitle: 'ELECTRO CRACKTRO // 128 BPM',
     mode: 'cracktro',
     bpm: 128,
-    root: 33, // A1 (55 Hz)
-    leadOct: 24,
-    soloOct: 24,
+    root: 33, // A1
     accentColor: '#ff5a00',
     beamColor: [1.0, 0.42, 0.08],
-    patch: { pump: 0.48, revSend: 0.30, delaySend: 0.28 },
-    chords: [
-      { b: 33, p: [0, 3, 7, 12],   a: [0, 3, 7, 3] },   // Am
-      { b: 29, p: [-4, 0, 3, 8],   a: [-4, 0, 3, 0] },  // F
-      { b: 36, p: [3, 7, 10, 15],  a: [3, 7, 10, 7] },  // C
-      { b: 31, p: [-2, 2, 5, 10],  a: [-2, 2, 5, 2] },  // G
-      { b: 33, p: [0, 3, 7, 12],   a: [0, 3, 7, 3] },   // Am
-      { b: 29, p: [-4, 0, 3, 8],   a: [-4, 0, 3, 0] },  // F
-      { b: 36, p: [3, 7, 10, 15],  a: [3, 7, 10, 7] },  // C
-      { b: 31, p: [-2, 2, 5, 10],  a: [-2, 2, 5, 2] }   // G
-    ],
-    kicks: [
-      P('1000100010001000'),
-      P('1000100010001010'),
-      P('1000000010000000')
-    ],
-    snares: [
-      P('0000100000001000'),
-      P('0000100000001002'),
-      P('0000000000001000')
-    ],
-    hats: [
-      P('0010001000100010'),
-      P('0313032303130321')
-    ],
-    // Classic 8th-note sweeping sawtooth bass with +12 octave jump on steps 6 & 14!
-    bassPats: [
-      P('0-0-0-1-0-0-0-1-'),
-      P('0-0-0-1-0-2-0-1-')
-    ],
-    // Rolling 16th-note square-wave chord arpeggio [0,1,2,1]
-    arpPats: [
-      P('0123012301230123'),
-      P('0123012301230231')
-    ],
-    // 8-bar signature A-minor pentatonic triangle melody on [0, 3, 6, 10, 12] groove!
-    melA: [
-      [0,12,3,0], [3,15,3,0], [6,19,4,0], [10,17,2,0], [12,22,4,0],
-      [16,15,3,0], [19,17,3,0], [22,12,4,0], [26,19,2,0], [28,24,4,0],
-      [32,19,3,0], [35,22,3,0], [38,15,4,0], [42,17,2,0], [44,19,4,0],
-      [48,22,3,0], [51,19,3,0], [54,17,4,0], [58,15,2,0], [60,12,4,0],
-      [64,12,3,0], [67,17,3,0], [70,22,4,0], [74,19,2,0], [76,24,4,0],
-      [80,15,3,0], [83,19,3,0], [86,17,4,0], [90,22,2,0], [92,19,4,0],
-      [96,24,3,0], [99,22,3,0], [102,19,4,0], [106,15,2,0], [108,17,4,0],
-      [112,19,3,0], [115,22,3,0], [118,24,4,0], [122,22,2,0], [124,19,4,0]
-    ],
-    // 8-bar soaring climax cracktro pentatonic lead (octave shimmer on drop!)
-    solo: [
-      [0,24,3,0], [3,22,3,0], [6,19,4,0], [10,22,2,0], [12,24,4,0],
-      [16,27,3,0], [19,24,3,0], [22,22,4,0], [26,19,2,0], [28,24,4,0],
-      [32,27,3,0], [35,29,3,0], [38,24,4,0], [42,22,2,0], [44,24,4,0],
-      [48,22,3,0], [51,19,3,0], [54,17,4,0], [58,19,2,0], [60,22,4,0],
-      [64,24,3,0], [67,27,3,0], [70,29,4,0], [74,27,2,0], [76,24,4,0],
-      [80,22,3,0], [83,24,3,0], [86,19,4,0], [90,22,2,0], [92,24,4,0],
-      [96,29,3,0], [99,27,3,0], [102,24,4,0], [106,22,2,0], [108,19,4,0],
-      [112,24,6,0], [118,27,4,0], [122,29,6,0]
-    ],
-    vowels: ['AH', 'EE', 'OH', 'AI'],
-    sections: [
-      { bars: 4, chordOff: 0, name: 'BOOT SEQ',     energy: 0.44, drumSet: 0, kick: 0.95, snare: 0.70, hat: 0.85, bass: 0.90, arp: 0.88, lead: 0, solo: 0, pad: 0.65, filter: 0.48, roll: 0, drop: 0, tomFill: 1, lateKick: 0 },
-      { bars: 8, chordOff: 0, name: 'REPUBLIC',     energy: 0.82, drumSet: 0, kick: 1.00, snare: 1.00, hat: 0.95, bass: 1.00, arp: 0.95, lead: 1, solo: 0, pad: 0.75, filter: 0.80, roll: 0, drop: 0, tomFill: 1 },
-      { bars: 4, chordOff: 0, name: 'STATIC FREE',  energy: 0.24, drumSet: 2, kick: 0.00, snare: 0.45, hat: 0.40, bass: 0.45, arp: 1.00, lead: 0, solo: 0, pad: 1.00, filter: 0.36, roll: 0, drop: 0, tomFill: 0 },
-      { bars: 4, chordOff: 4, name: 'SIGNAL CRACK', energy: 0.90, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, arp: 1.00, lead: 0, solo: 0, pad: 0.85, filter: 0.94, roll: 1, drop: 0, tomFill: 1 },
-      { bars: 8, chordOff: 0, name: 'NO GRAVITY',   energy: 1.00, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, arp: 1.00, lead: 0, solo: 1, pad: 0.90, filter: 1.00, roll: 0, drop: 1, tomFill: 1 }
-    ],
+    patch: { pump: 0.52, revSend: 0.24, delaySend: 0.22 },
+    ch: [[57,60,64], [53,57,60], [60,64,67], [55,59,62]],
+    pe: [69,72,74,76,79,81],
+    sec: 'DDDDDDDDDDDDDDDD',
     lyrics: [
       'WELCOME TO', 'REPUBLIC', 'OF SPEED', 'NEON IN',
       'THE VEINS', 'GRAVITY', 'IS FREE', 'RELEASE',
@@ -554,7 +491,7 @@ export const TRACKS = [
   },
 
   // =========================================================================
-  // 07 // NEON DESCENT — High-Speed Euphoric Cracktro Trance (140 BPM, E min)
+  // 07 // NEON DESCENT — High-Speed Euphoric Cracktro (140 BPM, E minor)
   // =========================================================================
   {
     id: 'neon-descent',
@@ -563,74 +500,13 @@ export const TRACKS = [
     subtitle: 'EUPHORIC CRACKTRO // 140 BPM',
     mode: 'cracktro',
     bpm: 140,
-    root: 40, // E2 (Em -> C -> G -> D)
-    leadOct: 24,
-    soloOct: 24,
+    root: 40, // E2
     accentColor: '#7c4dff',
     beamColor: [0.58, 0.36, 1.0],
-    patch: { pump: 0.46, revSend: 0.36, delaySend: 0.32 },
-    chords: [
-      { b: 40, p: [0, 3, 7, 12],   a: [0, 3, 7, 3] },   // Em
-      { b: 36, p: [-4, 0, 3, 8],   a: [-4, 0, 3, 0] },  // C
-      { b: 43, p: [3, 7, 10, 15],  a: [3, 7, 10, 7] },  // G
-      { b: 38, p: [-2, 2, 5, 10],  a: [-2, 2, 5, 2] },  // D
-      { b: 40, p: [0, 3, 7, 12],   a: [0, 3, 7, 3] },   // Em
-      { b: 36, p: [-4, 0, 3, 8],   a: [-4, 0, 3, 0] },  // C
-      { b: 43, p: [3, 7, 10, 15],  a: [3, 7, 10, 7] },  // G
-      { b: 38, p: [-2, 2, 5, 10],  a: [-2, 2, 5, 2] }   // D
-    ],
-    kicks: [
-      P('1000100010001000'),
-      P('1000100010001010'),
-      P('1000000000000000')
-    ],
-    snares: [
-      P('0000100000001000'),
-      P('0000100000001010'),
-      P('0000000000001000')
-    ],
-    hats: [
-      P('0313031303130313'),
-      P('0313032303130321')
-    ],
-    bassPats: [
-      P('0-0-0-1-0-0-0-1-'),
-      P('0-0-0-1-0-2-0-1-')
-    ],
-    arpPats: [
-      P('0123012301230123'),
-      P('0123012301230231')
-    ],
-    // 8-bar E-minor pentatonic driving trance-cracktro melody [0, 3, 6, 10, 12]
-    melA: [
-      [0,0,3,0], [3,3,3,0], [6,7,4,0], [10,5,2,0], [12,10,4,0],
-      [16,3,3,0], [19,5,3,0], [22,0,4,0], [26,7,2,0], [28,12,4,0],
-      [32,7,3,0], [35,10,3,0], [38,3,4,0], [42,5,2,0], [44,7,4,0],
-      [48,10,3,0], [51,7,3,0], [54,5,4,0], [58,3,2,0], [60,0,4,0],
-      [64,0,3,0], [67,5,3,0], [70,10,4,0], [74,7,2,0], [76,12,4,0],
-      [80,3,3,0], [83,7,3,0], [86,5,4,0], [90,10,2,0], [92,7,4,0],
-      [96,12,3,0], [99,10,3,0], [102,7,4,0], [106,3,2,0], [108,5,4,0],
-      [112,7,3,0], [115,10,3,0], [118,12,4,0], [122,10,2,0], [124,7,4,0]
-    ],
-    // 8-bar soaring climax pentatonic lead (octave shimmer on drop!)
-    solo: [
-      [0,12,3,0], [3,10,3,0], [6,7,4,0], [10,10,2,0], [12,12,4,0],
-      [16,15,3,0], [19,12,3,0], [22,10,4,0], [26,7,2,0], [28,12,4,0],
-      [32,15,3,0], [35,17,3,0], [38,12,4,0], [42,10,2,0], [44,12,4,0],
-      [48,10,3,0], [51,7,3,0], [54,5,4,0], [58,7,2,0], [60,10,4,0],
-      [64,12,3,0], [67,15,3,0], [70,17,4,0], [74,15,2,0], [76,12,4,0],
-      [80,10,3,0], [83,12,3,0], [86,7,4,0], [90,10,2,0], [92,12,4,0],
-      [96,17,3,0], [99,15,3,0], [102,12,4,0], [106,10,2,0], [108,7,4,0],
-      [112,12,6,0], [118,15,4,0], [122,17,6,0]
-    ],
-    vowels: ['EE', 'AH', 'OH', 'AI'],
-    sections: [
-      { bars: 4, chordOff: 0, name: 'PRESSURE',       energy: 0.42, drumSet: 0, kick: 0.80, snare: 0.45, hat: 0.72, bass: 0.78, arp: 0.85, lead: 0, solo: 0, pad: 0.75, filter: 0.45, roll: 0, drop: 0, tomFill: 1, lateKick: 1 },
-      { bars: 8, chordOff: 0, name: 'NEON DROP',      energy: 0.88, drumSet: 0, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, arp: 0.98, lead: 1, solo: 0, pad: 0.80, filter: 0.88, roll: 0, drop: 0, tomFill: 1 },
-      { bars: 4, chordOff: 0, name: 'SILENCE',        energy: 0.20, drumSet: 2, kick: 0.45, snare: 0.00, hat: 0.30, bass: 0.75, arp: 0.65, lead: 0, solo: 0, pad: 1.00, filter: 0.32, roll: 0, drop: 0, tomFill: 0 },
-      { bars: 4, chordOff: 4, name: 'LOCK IN',        energy: 0.92, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, arp: 1.00, lead: 0, solo: 0, pad: 0.90, filter: 0.96, roll: 1, drop: 0, tomFill: 1 },
-      { bars: 8, chordOff: 0, name: 'SPEED OF SOUND', energy: 1.00, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, arp: 1.00, lead: 0, solo: 1, pad: 0.92, filter: 1.00, roll: 0, drop: 1, tomFill: 1 }
-    ],
+    patch: { pump: 0.48, revSend: 0.32, delaySend: 0.28 },
+    ch: [[64,67,71], [60,64,67], [67,71,74], [62,66,69]],
+    pe: [64,67,69,71,74,76],
+    sec: 'iiiibbbbDDDDDDDDmmmmbbbbDDDDDDDDoooo',
     lyrics: [
       'FEEL THE', 'PRESSURE', 'RISING', 'THREE TWO',
       'ONE', 'DROP INTO', 'THE NEON', 'EVERY LIGHT',
@@ -651,74 +527,13 @@ export const TRACKS = [
     subtitle: 'HYPNOTIC CRACKTRO // 112 BPM',
     mode: 'cracktro',
     bpm: 112,
-    root: 38, // D2 (Dm -> Bb -> F -> C)
-    leadOct: 24,
-    soloOct: 24,
+    root: 38, // D2
     accentColor: '#00e5a8',
     beamColor: [0.05, 0.94, 0.72],
-    patch: { pump: 0.40, revSend: 0.48, delaySend: 0.36 },
-    chords: [
-      { b: 38, p: [0, 3, 7, 12],   a: [0, 3, 7, 3] },   // Dm
-      { b: 34, p: [-4, 0, 3, 8],   a: [-4, 0, 3, 0] },  // Bb
-      { b: 41, p: [3, 7, 10, 15],  a: [3, 7, 10, 7] },  // F
-      { b: 36, p: [-2, 2, 5, 10],  a: [-2, 2, 5, 2] },  // C
-      { b: 38, p: [0, 3, 7, 12],   a: [0, 3, 7, 3] },   // Dm
-      { b: 34, p: [-4, 0, 3, 8],   a: [-4, 0, 3, 0] },  // Bb
-      { b: 41, p: [3, 7, 10, 15],  a: [3, 7, 10, 7] },  // F
-      { b: 36, p: [-2, 2, 5, 10],  a: [-2, 2, 5, 2] }   // C
-    ],
-    kicks: [
-      P('1000100010001000'),
-      P('1000100010101000'),
-      P('1000000000000000')
-    ],
-    snares: [
-      P('0000100000001000'),
-      P('0000100200001002'),
-      P('0000000000001000')
-    ],
-    hats: [
-      P('0010001000100010'),
-      P('0313032303130321')
-    ],
-    bassPats: [
-      P('0-0-0-1-0-0-0-1-'),
-      P('0-0-0-1-0-2-0-1-')
-    ],
-    arpPats: [
-      P('0123012301230123'),
-      P('0123012301230231')
-    ],
-    // 8-bar D-minor pentatonic hypnotic melody [0, 3, 6, 10, 12]
-    melA: [
-      [0,0,4,0], [3,3,3,0], [6,7,4,0], [10,5,2,0], [12,10,4,0],
-      [16,3,4,0], [19,5,3,0], [22,0,4,0], [26,7,2,0], [28,12,4,0],
-      [32,7,4,0], [35,10,3,0], [38,3,4,0], [42,5,2,0], [44,7,4,0],
-      [48,10,4,0], [51,7,3,0], [54,5,4,0], [58,3,2,0], [60,0,4,0],
-      [64,0,4,0], [67,5,3,0], [70,10,4,0], [74,7,2,0], [76,12,4,0],
-      [80,3,4,0], [83,7,3,0], [86,5,4,0], [90,10,2,0], [92,7,4,0],
-      [96,12,4,0], [99,10,3,0], [102,7,4,0], [106,3,2,0], [108,5,4,0],
-      [112,7,4,0], [115,10,3,0], [118,12,6,0], [124,7,4,0]
-    ],
-    // 8-bar soaring D-minor pentatonic climax solo
-    solo: [
-      [0,12,4,0], [3,10,3,0], [6,7,4,0], [10,10,2,0], [12,12,4,0],
-      [16,15,4,0], [19,12,3,0], [22,10,4,0], [26,7,2,0], [28,12,4,0],
-      [32,15,4,0], [35,17,3,0], [38,12,4,0], [42,10,2,0], [44,12,4,0],
-      [48,10,4,0], [51,7,3,0], [54,5,4,0], [58,7,2,0], [60,10,4,0],
-      [64,12,4,0], [67,15,3,0], [70,17,4,0], [74,15,2,0], [76,12,4,0],
-      [80,10,4,0], [83,12,3,0], [86,7,4,0], [90,10,2,0], [92,12,4,0],
-      [96,17,4,0], [99,15,3,0], [102,12,4,0], [106,10,2,0], [108,7,4,0],
-      [112,12,6,0], [118,15,4,0], [122,17,6,0]
-    ],
-    vowels: ['OO', 'OH', 'AH', 'AI'],
-    sections: [
-      { bars: 4, chordOff: 0, name: 'ENGINES HUM',  energy: 0.34, drumSet: 0, kick: 0.72, snare: 0.35, hat: 0.55, bass: 0.80, arp: 0.72, lead: 0, solo: 0, pad: 0.90, filter: 0.38, roll: 0, drop: 0, tomFill: 1, lateKick: 1 },
-      { bars: 8, chordOff: 0, name: 'LET GO',       energy: 0.80, drumSet: 0, kick: 1.00, snare: 0.95, hat: 0.90, bass: 1.00, arp: 0.92, lead: 1, solo: 0, pad: 0.92, filter: 0.80, roll: 0, drop: 0, tomFill: 1 },
-      { bars: 4, chordOff: 0, name: 'DRIFTING',     energy: 0.18, drumSet: 2, kick: 0.40, snare: 0.00, hat: 0.25, bass: 0.75, arp: 0.55, lead: 0, solo: 0, pad: 1.00, filter: 0.30, roll: 0, drop: 0, tomFill: 0 },
-      { bars: 4, chordOff: 4, name: 'HEAR IT RISE', energy: 0.86, drumSet: 1, kick: 1.00, snare: 0.95, hat: 0.95, bass: 1.00, arp: 1.00, lead: 0, solo: 0, pad: 0.95, filter: 0.94, roll: 1, drop: 0, tomFill: 1 },
-      { bars: 8, chordOff: 0, name: 'GRAVITY WELL', energy: 0.98, drumSet: 1, kick: 1.00, snare: 1.00, hat: 1.00, bass: 1.00, arp: 1.00, lead: 0, solo: 1, pad: 1.00, filter: 1.00, roll: 0, drop: 1, tomFill: 1 }
-    ],
+    patch: { pump: 0.42, revSend: 0.42, delaySend: 0.32 },
+    ch: [[62,65,69], [58,62,65], [65,69,72], [60,64,67]],
+    pe: [62,65,67,69,72,74],
+    sec: 'iiiiiiiibbbbbbbbDDDDDDDDmmmmmmmmbbbbDDDDDDDDDDDDoooo',
     lyrics: [
       'SLOW AND', 'STEADY NOW', 'THE ENGINES', 'HUM',
       'FEEL IT', 'BUILD', 'PULSE BY', 'PULSE',

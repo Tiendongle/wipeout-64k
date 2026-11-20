@@ -63,6 +63,13 @@ synth.onJump = (dtAhead, isMega, energy) => {
   }
 };
 
+synth.onTrackEnd = () => {
+  const next = (synth.trackIndex + 1) % TRACKS.length;
+  loadTrackVisuals(next);
+  synth.setTrack(next);
+  hud.setTrackState(synth.trackIndex, synth.playing, synth.muted);
+};
+
 // Seed initial attract-mode speed pads & billboards ahead before audio starts
 for (let i = 1; i <= 6; i++) {
   track.spawnSpeedPad(ship.worldS + i * 58, 0);
@@ -150,6 +157,9 @@ window.addEventListener('keydown', (e) => {
     hud.setTrackState(synth.trackIndex, synth.playing, synth.muted);
   } else if (e.key === 'g' || e.key === 'G') {
     renderer.glitchOn = !renderer.glitchOn;
+  } else if (e.key === 'l' || e.key === 'L') {
+    synth.loopTrack = !synth.loopTrack;
+    hud.setLoop(synth.loopTrack);
   }
 });
 

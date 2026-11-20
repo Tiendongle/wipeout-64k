@@ -131,6 +131,7 @@ export class SynthEngine {
     this.trackIndex = 0;
     this.playing = false;
     this.muted = false;
+    this.loopTrack = false;
     this._offline = false;
 
     this.step = 0;
@@ -193,6 +194,7 @@ export class SynthEngine {
     this.onSpeedPad = null;
     this.onBillboard = null;
     this.onJump = null;
+    this.onTrackEnd = null;
   }
 
   get track() {
@@ -398,14 +400,56 @@ export class SynthEngine {
         if (this.onBillboard) this.onBillboard(ev.a, ev.b, ev.c);
       } else if (ev.kind === 10) {
         if (this.onJump) this.onJump(ev.a, ev.b, ev.c);
+      } else if (ev.kind === 11) {
+        if (this.onTrackEnd) this.onTrackEnd();
       }
     }
+  }
+
+  _getTrackTotalBars(tr) {
+    if (tr.sec) return tr.sec.length;
+    let total = 0;
+    for (const s of tr.sections) total += s.bars;
+    return total;
+  }
+
+  _getCracktroSec(tr, bar) {
+    const secStr = tr.sec;
+    const n = ((bar % secStr.length) + secStr.length) % secStr.length;
+    const sc = secStr[n];
+    let rs = n, re = n;
+    while (rs > 0 && secStr[rs - 1] === sc) rs--;
+    while (re + 1 < secStr.length && secStr[re + 1] === sc) re++;
+    const rl = re - rs + 1;
+    const prog = (n - rs) / rl;
+    const names = { i: 'INTRO', b: 'BUILD UP', D: 'DROP', m: 'BREAKDOWN', o: 'OUTRO' };
+    const energy = sc === 'D' ? 0.96 : (sc === 'b' ? 0.48 + prog * 0.44 : (sc === 'm' ? 0.22 : (sc === 'i' ? 0.36 + prog * 0.16 : 0.28 * (1 - prog))));
+    return { n, sc, rs, rl, prog, isLast: n === re, energy, name: names[sc] || 'CRACKTRO' };
   }
 
   _inspectFuture(fStep, stepDur, emitTime, dtAhead, checkPads, checkBb, checkJump) {
     const tr = this.track;
     const fBar = Math.floor(fStep / 16);
     const fs16 = fStep % 16;
+    if (tr.mode === 'cracktro') {
+      const cs = this._getCracktroSec(tr, fBar);
+      const isCutout = cs.sc === 'b' && cs.isLast && fs16 >= 14;
+      const isDropEntry = cs.sc === 'D' && cs.n === cs.rs && fs16 === 0 && fBar > 0;
+      if (checkJump && isDropEntry) this._pushEv(emitTime, 10, dtAhead, 1, cs.energy);
+      if (checkPads && !isCutout && !isDropEntry && fs16 % 4 === 0 && (cs.sc === 'D' || cs.sc === 'b')) {
+        if (fStep - this._lastPadStep >= 3) {
+          this._lastPadStep = fStep;
+          this._pushEv(emitTime, 8, dtAhead, cs.sc === 'D' ? 1 : 0, cs.energy);
+        }
+      }
+      if (checkBb && !isCutout && (fs16 === 4 || fs16 === 12) && (cs.sc === 'D' || (cs.sc === 'b' && cs.prog > 0.4))) {
+        if (fStep - this._lastBbStep >= 4) {
+          this._lastBbStep = fStep;
+          this._pushEv(emitTime, 9, dtAhead, fs16 === 4 ? 1 : 0, cs.energy);
+        }
+      }
+      return;
+    }
     const { sec, barInSec } = this._getSectionAtBar(fBar);
     const isTomFill = sec.tomFill && barInSec === sec.bars - 1 && fs16 >= 12;
     const introEarly = sec.lateKick && barInSec < 2;
@@ -563,7 +607,13 @@ export class SynthEngine {
     }
     const lookahead = 0.17;
     const stepDur = 60 / this.track.bpm / 4;
+    const totalSteps = this._getTrackTotalBars(this.track) * 16;
     while (this.nextStepTime < now + lookahead) {
+      if (!this._offline && !this.loopTrack && this.step >= totalSteps) {
+        this._pushEv(this.nextStepTime, 11);
+        this.step = 0;
+        return;
+      }
       this._scheduleStep(this.step, this.nextStepTime, stepDur);
       this.nextStepTime += stepDur;
       this.step++;
@@ -579,9 +629,134 @@ export class SynthEngine {
     g.setTargetAtTime(1.0, t + 0.022, Math.max(0.032, recDur * 0.34));
   }
 
+  _scheduleCracktroStep(step, t, stepDur) {
+    const tr = this.track;
+    const beatDur = stepDur * 4;
+    const bar = Math.floor(step / 16);
+    const s16 = step % 16;
+    const cs = this._getCracktroSec(tr, bar);
+    const ch = tr.ch[cs.n % 4];
+    const sc = cs.sc;
+    const prog = cs.prog;
+    const fade = sc === 'o' ? Math.max(0.12, 1.0 - 0.85 * prog) : 1.0;
+
+    this._sectionName = cs.name;
+    this._sectionEnergy = cs.energy;
+    this._sectionRoll = sc === 'b' ? 1 : 0;
+    this._sectionDrop = sc === 'D' ? 1 : 0;
+
+    if (s16 % 4 === 0) this._lastBeatTime = t;
+
+    if (!this._offline) {
+      this._pushEv(t, 1, bar, ch[s16 % 3] - tr.root, s16);
+      const padLead = Math.max(8, Math.round(1.55 / stepDur));
+      const bbLead = Math.max(8, Math.round(1.70 / stepDur));
+      const jumpLead = Math.max(16, Math.round(3.35 / stepDur));
+      this._inspectFuture(step + padLead, stepDur, t, padLead * stepDur, true, false, false);
+      this._inspectFuture(step + bbLead, stepDur, t, bbLead * stepDur, false, true, false);
+      this._inspectFuture(step + jumpLead, stepDur, t, jumpLead * stepDur, false, false, true);
+      if (s16 % 8 === 0 && tr.lyrics.length > 0) {
+        const word = tr.lyrics[this._lyricIndex % tr.lyrics.length];
+        this._lyricIndex++;
+        this._pushEv(t, 3, word, cs.energy);
+      }
+    }
+
+    // Faithful 1-to-1 reference synth voice helpers routed through our master EQ/comp/delay/reverb!
+    const playTone = (type, midi, dur, vol, cut, sendFx = 0) => {
+      const f = midiToFreq(midi);
+      const lp = this._flt('lowpass', cut, 0.9, t);
+      const g = this._env(vol, t, 0.006, dur);
+      this._osc(type, f, t, t + dur + 0.04).connect(lp);
+      lp.connect(g);
+      g.connect(this.pumpBus);
+      if (sendFx & 1) g.connect(this.delayIn);
+      if (sendFx & 2) g.connect(this.reverbIn);
+    };
+    const playNz = (dur, vol, hpFreq) => {
+      const hp = this._flt('highpass', hpFreq, 0, t);
+      const g = this._env(vol, t, 0, dur);
+      this._buf(this.noiseBuf, t, t + dur + 0.01).connect(hp);
+      hp.connect(g);
+      g.connect(this.dryBus);
+      if (dur > 0.15) g.connect(this.reverbIn);
+    };
+    const playKick = (vol = 1.0) => {
+      const osc = this._osc('sine', 160, t, t + 0.36);
+      osc.frequency.exponentialRampToValueAtTime(42, t + 0.12);
+      const g = this._env(vol * 0.95, t, 0.002, 0.32);
+      osc.connect(g); g.connect(this.dryBus); g.connect(this.subTapBus);
+      this._triggerSidechain(t, stepDur, tr.patch.pump || 0.48, 0.45);
+      this._lastKickTime = t;
+      this._pushEv(t, 4);
+    };
+
+    // Exact 2-step pre-drop silence cutout on final bar of build ('b', s16 >= 14)!
+    if (sc === 'b' && cs.isLast && s16 >= 14) return;
+
+    if (sc === 'D') {
+      // Exact crash + visual drop flash on first beat of drop!
+      if (s16 === 0 && cs.n === cs.rs && bar > 0) {
+        playNz(1.4, 0.38, 2500);
+        this._lastDropTime = t;
+        this._pushEv(t, 2);
+      }
+      if (s16 % 4 === 0) playKick(1.0);
+      if (s16 % 4 === 2) playNz(0.05, 0.20, 7000);
+      else if (s16 % 2 === 1 && tr.id !== 'gravity-league') playNz(0.03, 0.075, 9000);
+      if (s16 === 4 || s16 === 12) {
+        playNz(0.20, 0.42, 1800);
+        this._lastSnareTime = t;
+      }
+      // Exact staccato 8th-note sweeping sawtooth bass with +12 octave jump on steps 6 & 14!
+      if (s16 % 2 === 0) {
+        const bMidi = ch[0] - 24 + (s16 % 8 === 6 ? 12 : 0);
+        playTone('sawtooth', bMidi, 0.22, 0.34, 500 + (step % 128) * 8);
+      }
+      // Exact rolling 16th-note square chord arp [0, 1, 2, 1] + 12!
+      playTone('square', ch[[0, 1, 2, 1][s16 & 3]] + 12, 0.10, 0.085, 2600, 1);
+      // Exact signature pentatonic triangle melody on [0, 3, 6, 10, 12] using (7 * step >> 3) % 6!
+      if (s16 === 0 || s16 === 3 || s16 === 6 || s16 === 10 || s16 === 12) {
+        const mMidi = tr.pe[(7 * step >> 3) % 6];
+        playTone('triangle', mMidi, 0.30, 0.16, 3500, 3);
+        this._pushEv(t, 7, midiToFreq(mMidi), Math.max(0, Math.min(1, (mMidi - 52) / 30)));
+      }
+    } else if (sc === 'b') {
+      // Exact build-up: rising kick, hats, accelerating snare roll, noise sweep, +1 oct arp lift!
+      if (s16 % 4 === 0) playKick(0.50 + 0.40 * prog);
+      if (s16 % 2 === 0) playNz(0.04, 0.08 + 0.12 * prog, 7000);
+      if (cs.isLast) playNz(0.08, 0.10 + 0.032 * s16, 1800);
+      else if (prog > 0.4 && (s16 === 4 || s16 === 12)) playNz(0.18, 0.28, 1800);
+      playNz(0.10, 0.045 + 0.09 * prog, 400 + 7000 * prog);
+      if (s16 % 4 === 0) playTone('sawtooth', ch[0] - 24, 0.9 * beatDur, 0.20, 300 + 900 * prog);
+      playTone('square', ch[[0, 1, 2, 1][s16 & 3]] + (prog > 0.5 ? 24 : 12), 0.10, 0.05 + 0.055 * prog, 800 + 3200 * prog, 1);
+    } else {
+      // Exact intro ('i'), mid-breakdown ('m'), and fade outro ('o')!
+      if (s16 === 0 && sc !== 'i') playKick(sc === 'm' ? 0.42 : 0.50 * fade);
+      if (sc === 'm' || sc === 'o') {
+        if (s16 === 0) playTone('sine', ch[0] - 24, 3.8 * beatDur, 0.30 * fade, 300);
+        if (s16 % 8 === 0) playTone('triangle', ch[2] + 12, 2.0 * beatDur, 0.13 * fade, 2000, 3);
+        if (sc === 'm' && s16 % 4 === 2) playTone('square', ch[[0, 1, 2, 1][(s16 >> 2) & 3]] + 12, 0.20, 0.05, 1200, 1);
+      } else if (s16 % 2 === 0) {
+        playTone('square', ch[[0, 1, 2, 1][(s16 >> 1) & 3]] + 12, 0.12, 0.05 + 0.035 * prog, 700 + 1500 * prog, 1);
+      }
+    }
+
+    // Exact full-bar warm sawtooth chord pad!
+    if (s16 === 0) {
+      const pCut = sc === 'D' ? 900 : 600 + prog * (sc === 'b' ? 1500 : 600);
+      const pVol = (sc === 'm' ? 0.075 : 0.055) * fade;
+      for (const n of ch) playTone('sawtooth', n, 3.8 * beatDur, pVol, pCut, 2);
+    }
+  }
+
   _scheduleStep(step, t, stepDur) {
     const tr = this.track;
     const mode = tr.mode;
+    if (mode === 'cracktro') {
+      this._scheduleCracktroStep(step, t, stepDur);
+      return;
+    }
     const bar = Math.floor(step / 16);
     const s16 = step % 16;
     const { sec, barInSec, progress } = this._getSectionAtBar(bar);
@@ -694,8 +869,11 @@ export class SynthEngine {
       }
     }
 
+    // Pre-drop 2-step breath/silence cutout on final two 16th-notes of build-up roll (maximum drop impact!)
+    if (sec.roll && barInSec === sec.bars - 1 && s16 >= 14) return;
+
     // Transition Tom Fill on beat 4 of section end bars
-    const isTomFill = sec.tomFill && barInSec === sec.bars - 1 && s16 >= 12;
+    const isTomFill = sec.tomFill && !sec.roll && barInSec === sec.bars - 1 && s16 >= 12;
     if (isTomFill) {
       const tomFreqs = [225, 178, 138, 102];
       this._playTom(t, tomFreqs[s16 - 12], 0.42, mode === 'tracker');
@@ -783,16 +961,6 @@ export class SynthEngine {
         } else if (mode === 'retrowave') {
           const subFreq = midiToFreq(chord.b + (code === 2 ? 7 : 0));
           this._playSubSine45(t, stepDur * 3.85, subFreq, bassGain * 0.92);
-        } else if (mode === 'cracktro') {
-          if (sec.energy < 0.35) {
-            // Hypnotic mid-breakdown ('m'): deep sustained sub-sine + floating triangle chimes!
-            if (s16 === 0) this._playSubSine45(t, stepDur * 15.2, midiToFreq(chord.b), bassGain * 0.95);
-            if (s16 % 8 === 0) this._playCracktroLead(t, stepDur * 7.5, midiToFreq(tr.root + 24 + chord.p[2]), 0.14, false);
-          } else {
-            const freq = midiToFreq(chord.b + off);
-            const sweep = 500 + ((step % 128) * 9.5) + sec.filter * 420;
-            this._playCracktroBass(t, stepDur * 1.9, freq, bassGain * 1.15, sweep);
-          }
         }
       }
     }
@@ -815,14 +983,6 @@ export class SynthEngine {
         } else if (mode === 'retrowave') {
           const semi = chord.a[idx % 4] + (idx >= 4 ? 12 : 0);
           this._playGlassBellArp(t, stepDur * 1.05, midiToFreq(arpBase + semi), sec.arp * 0.088, s16 % 2 ? 0.36 : -0.36);
-        } else if (mode === 'cracktro') {
-          const semi = chord.a[idx % 4];
-          if (sec.energy < 0.35) {
-            if (s16 % 4 === 2) this._playCracktroArp(t, stepDur * 1.4, midiToFreq(arpBase + 12 + semi), sec.arp * 0.065, s16 % 8 === 2 ? -0.35 : 0.35);
-          } else {
-            const octShift = (sec.roll && progress > 0.5) ? 24 : 12;
-            this._playCracktroArp(t, stepDur * 0.88, midiToFreq(arpBase + octShift + semi), sec.arp * 0.092, s16 % 2 ? 0.34 : -0.34);
-          }
         }
       }
     }
@@ -1558,45 +1718,6 @@ export class SynthEngine {
   }
 
   // =========================================================================
-  // TRACK 06 RACK (GRAVITY LEAGUE): Sweeping Octave-Jump Sawtooth Bass,
-  // 16th-Note Square Chord Arp, Classic Pentatonic Triangle Cracktro Lead
-  // =========================================================================
-
-  _playCracktroBass(t, dur, freq, gain, cutoff) {
-    const stop = t + dur + 0.02;
-    const lp = this._flt('lowpass', Math.min(2600, cutoff), 1.8, t);
-    lp.frequency.exponentialRampToValueAtTime(Math.max(220, cutoff * 0.45), t + dur);
-    const g = this._env(gain, t, 0.005, dur);
-    this._osc('sawtooth', freq, t, stop, -6).connect(lp);
-    this._osc('sawtooth', freq, t, stop, 6).connect(lp);
-    const subG = this._gain(0.45);
-    this._osc('sine', freq, t, stop).connect(subG); subG.connect(g);
-    lp.connect(g); g.connect(this.pumpBus); g.connect(this.subTapBus);
-  }
-
-  _playCracktroArp(t, dur, freq, gain, panVal) {
-    const lp = this._flt('lowpass', 2600, 1.0, t);
-    const g = this._env(gain, t, 0.004, dur);
-    const pan = this._pan(panVal);
-    this._osc('square', freq, t, t + dur + 0.02).connect(lp);
-    lp.connect(g); g.connect(pan);
-    pan.connect(this.mixBus); pan.connect(this.delayIn);
-  }
-
-  _playCracktroLead(t, dur, freq, gain, isDrop) {
-    const stop = t + dur + 0.04;
-    const lp = this._flt('lowpass', 3500, 1.1, t);
-    const g = this._env(gain, t, 0.006, dur, 0.72, 0.65);
-    this._osc('triangle', freq, t, stop, -4).connect(lp);
-    this._osc('triangle', freq, t, stop, 4).connect(lp);
-    if (isDrop) {
-      const shG = this._gain(0.26);
-      this._osc('sine', freq * 2.0, t, stop).connect(shG); shG.connect(lp);
-    }
-    lp.connect(g); g.connect(this.mixBus); g.connect(this.delayIn); g.connect(this.reverbIn);
-  }
-
-  // =========================================================================
   // MODE LEAD DISPATCHER (ZERO SHARED GENERIC PATCHES ACROSS TRACKS!)
   // =========================================================================
 
@@ -1613,8 +1734,6 @@ export class SynthEngine {
       this._playKawaiiChipVocal(t, dur, freq, 0.44, phKey, cons, isDrop > 0);
     } else if (mode === 'acid') {
       this._playFmRaveLead(t, dur, freq, isDrop ? 0.16 : 0.13);
-    } else if (mode === 'cracktro') {
-      this._playCracktroLead(t, dur, freq, isDrop ? 0.28 : 0.23, isDrop > 0);
     } else {
       this._playPopRetrowaveVocal(t, dur, freq, 0.47, slide, phKey, cons, isDrop > 0);
     }

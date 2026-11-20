@@ -213,17 +213,17 @@ export class Ship {
           // Descent-ONLY progressive hydraulic shock absorber (zero float on climb, silky landing catch!)
           const c = 1.0 - (clearance - restH) / (1.85 - restH);
           ay += (-relVy) * (13.5 * c * c);
-        } else if (clearance < 1.45 && !surf.isRamp && !noseSurf.isRamp) {
-          // Active ground-effect downforce suction over normal hills (keeps rolling hills planted!)
-          const s = 1.0 - (clearance - restH) / (1.45 - restH);
-          ay -= s * 46.0;
+        } else if (clearance < 2.45 && !surf.isRamp && !noseSurf.isRamp) {
+          // Strong ground-effect magnetic suction over normal hills (keeps high-speed rolling crests planted!)
+          const s = 1.0 - (clearance - restH) / (2.45 - restH);
+          ay -= 55.0 + 95.0 * s;
         }
       }
 
       this.vy += ay * subDt;
-      // Aerodynamic downforce cap prevents jumps on top of steep hill crests from getting floaty!
+      // Aerodynamic downforce cap keeps normal crests glued while preserving full skyway ramp launches!
       const onRamp = surf.isRamp || noseSurf.isRamp;
-      const maxUpVy = surf.hasRoad ? (onRamp ? 21.0 : 8.5) : 23.0;
+      const maxUpVy = surf.hasRoad ? (onRamp ? 21.0 : 4.5) : 23.0;
       if (this.vy > maxUpVy) this.vy = maxUpVy;
       this.worldY += this.vy * subDt;
 

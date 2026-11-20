@@ -13,6 +13,7 @@ export class Hud {
     root.innerHTML = `
       <div class="hz-bar hz-top"></div>
       <div class="hz-bar hz-bot"></div>
+      <div class="greetz-bar"><span class="greetz-track">*** GREETZ TO: THE DESIGNERS REPUBLIC // FEISAR // AG-SYS // QIREX // AURICOM // REPUBLIC GRAVITY LEAGUE // THE 64K DEMOSCENE // ALL NIGHT TRACKER CREW ***</span></div>
       <div class="tdr-kana">グラヴィティ・リーグ // 64K</div>
       <div class="hud-top">
         <div class="tdr-corner">
@@ -41,6 +42,7 @@ export class Hud {
             <div class="tdr-badges">
               <div class="tdr-badge">64K // SINGLE-GL</div>
               <span class="tdr-size">${kb} / 64.0 KB</span>
+              <span class="tdr-loop" id="hudLoop">LOOP</span>
               <svg class="tdr-reg" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="none" stroke="#f6f4ef" stroke-width="1.2"/><path d="M8 1v14M1 8h14" stroke="#f6f4ef" stroke-width="1.2"/></svg>
             </div>
           </div>
@@ -73,8 +75,8 @@ export class Hud {
           <div class="start-kicker">THE DESIGNERS REPUBLIC // 64K DEMOSCENE</div>
           <div class="start-h1">WIPEOUT-64K</div>
           <pre class="start-nfo">SIZE .... ${kb} / 64.0 KB  |  ASSETS .. NONE
-AUDIO ... 8 TRACKS / 6 SYNTH RACKS (LIVE)
-KEYS .... 1-8 TRACKS  |  M MUTE  |  G GLITCH</pre>
+AUDIO ... 8 TRACKS / AUTO-PLAYLIST (LIVE)
+KEYS .... 1-8 TRACKS | L LOOP | M MUTE | G GLITCH</pre>
           <div class="start-desc">
             MOVE MOUSE OR DRAG TOUCH LEFT / RIGHT TO SHAPE THE ONCOMING TRACK.<br>
             THE CRAFT DRIVES AUTONOMOUSLY WITH GROUND-EFFECT &amp; THRUST SURGE.
@@ -90,6 +92,7 @@ KEYS .... 1-8 TRACKS  |  M MUTE  |  G GLITCH</pre>
     this.subEl = root.querySelector('#hudTrackSub');
     this.lyricEl = root.querySelector('#hudLyric');
     this.lapEl = root.querySelector('#hudLap');
+    this.loopEl = root.querySelector('#hudLoop');
     this.beatSegs = [...root.querySelectorAll('.beat-seg')];
     this.playBtn = root.querySelector('#btnPlay');
     this.muteBtn = root.querySelector('#btnMute');
@@ -123,6 +126,10 @@ KEYS .... 1-8 TRACKS  |  M MUTE  |  G GLITCH</pre>
     this._lastFlash = false;
     this._lastBar = -1;
     this._lastLap = -1;
+  }
+
+  setLoop(on) {
+    this.loopEl.classList.toggle('on', on);
   }
 
   setTrackState(idx, playing, muted) {

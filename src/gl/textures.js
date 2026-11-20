@@ -113,33 +113,27 @@ export function createLyricAtlas(gl, words, accentHex) {
     const row = Math.floor(i / cols);
     const x = col * cellW;
     const y = row * cellH;
+    const cx = x + cellW * 0.5;
+    const cy = y + cellH * 0.52;
 
-    // Sleek translucent Wipeout holo-plate behind racing word
-    ctx.fillStyle = 'rgba(10, 10, 20, 0.72)';
-    ctx.beginPath();
-    ctx.moveTo(x + 18, y + 10);
-    ctx.lineTo(x + cellW - 8, y + 10);
-    ctx.lineTo(x + cellW - 22, y + cellH - 10);
-    ctx.lineTo(x + 4, y + cellH - 10);
-    ctx.closePath();
-    ctx.fill();
-
-    // Left neon tab
-    ctx.fillStyle = accentHex;
-    ctx.fillRect(x + 12, y + 14, 8, cellH - 28);
-
-    // Border outline
-    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-
-    // Bold racing text
-    ctx.fillStyle = '#ffffff';
+    // RGB-channel-encoded holographic karaoke word:
+    // R = crisp wireframe outline, B = offset drop-shadow, G = solid karaoke sweep fill!
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const fontSize = word.length > 9 ? 30 : word.length > 6 ? 38 : 44;
+    const fontSize = word.length > 9 ? 34 : word.length > 6 ? 42 : 50;
     ctx.font = `italic 900 ${fontSize}px Eurostile, Bahnschrift, Impact, sans-serif`;
-    ctx.fillText(word, x + cellW * 0.52, y + cellH * 0.52);
+    ctx.lineJoin = 'round';
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineWidth = 4.5;
+    ctx.strokeStyle = '#ff0000';
+    ctx.strokeText(word, cx, cy);
+    ctx.fillStyle = '#0000ff';
+    ctx.fillText(word, cx + 4, cy + 3);
+    ctx.fillStyle = '#00ff00';
+    ctx.fillText(word, cx, cy);
+    ctx.restore();
 
     map.set(word, {
       u0: col / cols,
