@@ -50,7 +50,6 @@ export class Hud {
         <div class="controls-bar">
           <button class="btn play-btn" id="btnPlay">PLAY</button>
           <button class="btn" id="btnMute">AUDIO ON</button>
-          <button class="btn" id="btnBeacons">BEACONS: ON</button>
           ${TRACKS.map((t, i) => `<button class="btn track-btn${i === 0 ? ' active' : ''}" data-track="${i}">${t.code} ${t.name.split(' ')[0]}</button>`).join('')}
         </div>
         <div class="karaoke-strip">
@@ -79,7 +78,6 @@ export class Hud {
     this.lyricEl = root.querySelector('#hudLyric');
     this.playBtn = root.querySelector('#btnPlay');
     this.muteBtn = root.querySelector('#btnMute');
-    this.beaconsBtn = root.querySelector('#btnBeacons');
     this.overlay = root.querySelector('#startOverlay');
     this.trackBtns = [...root.querySelectorAll('.track-btn')];
 
@@ -95,10 +93,6 @@ export class Hud {
 
     this.muteBtn.addEventListener('click', () => {
       this.cb.onToggleMute();
-    });
-
-    this.beaconsBtn.addEventListener('click', () => {
-      if (this.cb.onToggleBeacons) this.cb.onToggleBeacons();
     });
 
     this.trackBtns.forEach((btn) => {
@@ -121,10 +115,6 @@ export class Hud {
     this.playBtn.textContent = playing ? 'PAUSE' : 'PLAY';
     this.playBtn.classList.toggle('playing', playing);
     this.muteBtn.textContent = muted ? 'MUTED' : 'AUDIO ON';
-  }
-
-  setBeacons(on) {
-    this.beaconsBtn.textContent = on ? 'BEACONS: ON' : 'BEACONS: OFF';
   }
 
   update(music, ship) {

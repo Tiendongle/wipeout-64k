@@ -194,12 +194,12 @@ export function buildShipMesh() {
 
 // Track vertex format: [x, y, z, nx, ny, nz, u, v, mat] (9 floats)
 // Per segment quad count:
-// 1 road quad + 2 barrier wall quads (L/R) + 2 glowing rail quads (L/R) = 5 quads = 30 verts + room for trackside light pylons.
-export const TRACK_VERTS_PER_SEG = 34;
+// 1 road quad + 2 barrier wall quads (L/R) + 2 glowing rail quads (L/R) = 5 quads = 30 verts per segment.
+export const TRACK_VERTS_PER_SEG = 30;
 export const TRACK_FLOATS_PER_VERT = 9;
 export const TRACK_MAX_FLOATS = TOTAL_SEGS * TRACK_VERTS_PER_SEG * TRACK_FLOATS_PER_VERT;
 
-export function writeTrackGeometry(track, out, beaconsOn = true) {
+export function writeTrackGeometry(track, out) {
   let o = 0;
   const hw = TRACK_HALF_WIDTH;
   const railH = 0.95;
@@ -289,31 +289,6 @@ export function writeTrackGeometry(track, out, beaconsOn = true) {
     const rb0x = p0.x + p0.rx * rOff + p0.ux * railH, rb0y = p0.y + p0.ry * rOff + p0.uy * railH, rb0z = p0.z + p0.rz * rOff + p0.uz * railH;
     const rb1x = p1.x + p1.rx * rOff + p1.ux * railH, rb1y = p1.y + p1.ry * rOff + p1.uy * railH, rb1z = p1.z + p1.rz * rOff + p1.uz * railH;
     putQuad(rb1x, rb1y, rb1z, rb0x, rb0y, rb0z, rb0x + p0.ux * rThick, rb0y + p0.uy * rThick, rb0z + p0.uz * rThick, rb1x + p1.ux * rThick, rb1y + p1.uy * rThick, rb1z + p1.uz * rThick, -p0.rx, -p0.ry, -p0.rz, 0, s1, 0, s0, 1, s0, 1, s1, 2);
-
-    // Optional Toggleable #4: World-anchored angled neon trackside light-pylons every 24m (fuels upper-edge streaks!)
-    if (beaconsOn && Math.floor(s0 / 24.0) !== Math.floor(s1 / 24.0) && o + 108 <= out.length) {
-      const bw = 0.36;
-      const bBot = 1.55, bTop = 6.95;
-      const outBot = wallOut + 0.15, outTop = wallOut - 1.15; // sleek Wipeout inward cant!
-      for (let side = -1; side <= 1; side += 2) {
-        const bx = p0.x + p0.rx * (side * outBot) + p0.ux * bBot;
-        const by = p0.y + p0.ry * (side * outBot) + p0.uy * bBot;
-        const bz = p0.z + p0.rz * (side * outBot) + p0.uz * bBot;
-        const tx = p0.x + p0.rx * (side * outTop) + p0.ux * bTop;
-        const ty = p0.y + p0.ry * (side * outTop) + p0.uy * bTop;
-        const tz = p0.z + p0.rz * (side * outTop) + p0.uz * bTop;
-        // Front-facing glowing light-bar quad facing the oncoming pilot
-        const wx = p0.rx * bw, wy = p0.ry * bw, wz = p0.rz * bw;
-        putQuad(
-          bx - wx, by - wy, bz - wz,
-          bx + wx, by + wy, bz + wz,
-          tx + wx, ty + wy, tz + wz,
-          tx - wx, ty - wy, tz - wz,
-          -p0.fx, -p0.fy, -p0.fz,
-          0, s0, 0, s0, 1, s0, 1, s0, 3
-        );
-      }
-    }
   }
   return o / TRACK_FLOATS_PER_VERT;
 }

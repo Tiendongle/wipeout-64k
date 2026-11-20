@@ -65,7 +65,7 @@ export class Renderer {
     };
     this.u = {
       sky: loc(this.skyProg, ['uAspect', 'uTanHalfFov', 'uWorldYaw', 'uCamRight', 'uCamUp', 'uCamForward', 'uBeat', 'uTime']),
-      track: loc(this.trackProg, ['uView', 'uProj', 'uBeat', 'uAccent', 'uMaxDepth', 'uShipPos', 'uStabFlash', 'uRasterMode', 'uStepPulse', 'uTime', 'uBeacons', 'uPads[0]']),
+      track: loc(this.trackProg, ['uView', 'uProj', 'uBeat', 'uAccent', 'uMaxDepth', 'uShipPos', 'uStabFlash', 'uRasterMode', 'uStepPulse', 'uTime', 'uPads[0]']),
       quad: loc(this.quadProg, ['uView', 'uProj', 'uMaxDepth', 'uAlphaCut', 'uTex']),
       ship: loc(this.shipProg, ['uModel', 'uView', 'uProj', 'uCamPos', 'uBeamColor', 'uThrust', 'uMaxDepth']),
       beam: loc(this.beamProg, ['uView', 'uProj', 'uBeamColor', 'uIntensity', 'uTime', 'uMaxDepth']),
@@ -154,11 +154,10 @@ export class Renderer {
     // Reusable sample scratch
     this._tmpSample = {};
 
-    // Track 3 onStep pulse decay state, smooth boost-ramp radial blur & toggleable trackside beacons (#4)
+    // Track 3 onStep pulse decay state & smooth boost-ramp radial blur state
     this.stepPulse = 0;
     this._speedFilter = 0;
     this._baseKph = 580;
-    this.beaconsOn = true;
     this._blurCx = 0.5;
     this._blurCy = 0.5;
     this._shipU = 0.5;
@@ -418,10 +417,10 @@ export class Renderer {
 
     this.stepPulse = Math.max(0, this.stepPulse - dt * 10.0);
 
-    // 1B. 3D Track + Chevron Barriers + Glowing Rails + Optional Neon Pylon Beacons
+    // 1B. 3D Track + Chevron Barriers + Glowing Rails
     gl.enable(gl.DEPTH_TEST);
     gl.depthMask(true);
-    const trackVertCount = writeTrackGeometry(track, this.trackBuf, this.beaconsOn);
+    const trackVertCount = writeTrackGeometry(track, this.trackBuf);
     gl.useProgram(this.trackProg);
     gl.uniformMatrix4fv(U.track.uView, false, this.viewMat);
     gl.uniformMatrix4fv(U.track.uProj, false, this.projMat);
@@ -434,7 +433,6 @@ export class Renderer {
     gl.uniform1f(U.track.uRasterMode, music.rasterMode || 0);
     gl.uniform1f(U.track.uStepPulse, this.stepPulse);
     gl.uniform1f(U.track.uTime, nowSec);
-    gl.uniform1f(U.track.uBeacons, this.beaconsOn ? 1.0 : 0.0);
     // Pack up to 8 visible beat-synced speed pads into zero-alloc Float32Array uniform!
     this._padData.fill(0);
     let pCount = 0;

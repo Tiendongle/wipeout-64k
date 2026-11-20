@@ -150,7 +150,6 @@ uniform float uStabFlash;
 uniform float uRasterMode;
 uniform float uStepPulse;
 uniform float uTime;
-uniform float uBeacons;
 uniform vec4 uPads[8];
 
 layout(location = 0) out vec4 outColor;
@@ -236,23 +235,9 @@ void main() {
     // Dark bottom trim & top cap
     col = mix(vec3(0.08, 0.08, 0.12), col, smoothstep(0.0, 0.14, h) * smoothstep(1.0, 0.86, h));
     col *= (0.65 + 0.35 * ndl);
-    // Toggleable #4: Rhythmic neon barrier chase strips for extra peripheral streak contrast
-    if (uBeacons > 0.5) {
-      float chase = step(0.68, fract(s * 0.085 - uTime * 1.4)) * smoothstep(0.58, 0.78, h) * smoothstep(0.95, 0.84, h);
-      vec3 bCol = mix(uAccent, vec3(1.0, 0.82, 0.18), step(0.5, fract(s * 0.022)));
-      col = mix(col, bCol * (1.45 + 0.45 * uBeat + 0.65 * uStabFlash), chase);
-    }
-  } else if (vMat < 2.5) {
-    // Glowing anti-grav side energy rail (Track 2 stabTriggers & Track 4 accentTrigger flash!)
-    float pulse = uBeacons > 0.5 ? (1.0 + 0.55 * step(0.66, fract(vUv.y * 0.075 - uTime * 2.4))) : 1.0;
-    col = mix(vec3(0.05, 0.92, 1.0), uAccent, 0.45) * (1.25 + 0.45 * uBeat + 0.95 * uStabFlash) * pulse;
   } else {
-    // Toggleable #4: High-contrast Wipeout angled neon trackside light-pylon beacon!
-    float h = vUv.x; // 0 = base stalk, 1 = top beacon head
-    float lit = smoothstep(0.30, 0.48, h);
-    vec3 bCol = mix(uAccent, vec3(1.0, 0.84, 0.22), step(0.5, fract(vUv.y * 0.021)));
-    vec3 head = mix(bCol, vec3(1.0, 0.99, 0.96), smoothstep(0.55, 0.95, h) * 0.45);
-    col = mix(vec3(0.10, 0.10, 0.15), head * (1.55 + 0.50 * uBeat + 0.75 * uStabFlash), lit);
+    // Glowing anti-grav side energy rail (Track 2 stabTriggers & Track 4 accentTrigger flash!)
+    col = mix(vec3(0.05, 0.92, 1.0), uAccent, 0.45) * (1.25 + 0.45 * uBeat + 0.95 * uStabFlash);
   }
 
   // Distance atmospheric pink horizon fog

@@ -82,10 +82,6 @@ const hud = new Hud(hudRoot, {
     synth.setMuted(!synth.muted);
     hud.setTrackState(synth.trackIndex, synth.playing, synth.muted);
   },
-  onToggleBeacons: () => {
-    renderer.beaconsOn = !renderer.beaconsOn;
-    hud.setBeacons(renderer.beaconsOn);
-  },
   onSelectTrack: (idx) => {
     loadTrackVisuals(idx);
     synth.setTrack(idx);
@@ -152,9 +148,6 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === 'm' || e.key === 'M') {
     synth.setMuted(!synth.muted);
     hud.setTrackState(synth.trackIndex, synth.playing, synth.muted);
-  } else if (e.key === 'l' || e.key === 'L') {
-    renderer.beaconsOn = !renderer.beaconsOn;
-    hud.setBeacons(renderer.beaconsOn);
   }
 });
 
